@@ -140,6 +140,38 @@ retired only after **two consecutive** zero-approval runs, and why only runs tha
 completed successfully count as evidence — an infrastructure failure cannot retire
 a viable niche.
 
+## Credit preflight
+
+Every run checks all three provider balances **before calling any of them**, and
+refuses to start if one is short. The order matters: a run spends ~330 Scrappa
+credits on autocomplete expansion before SE Ranking is touched at all, so
+discovering an empty SE Ranking balance mid-run means that Scrappa spend bought
+nothing.
+
+| Provider | Balance endpoint | Gate |
+|---|---|---|
+| SE Ranking | `GET /v1/account/credits` | sum of subscription + addon + wallet remaining, **and** `access.can_use_data_api` |
+| Scrappa | `GET /api/account/usage` | `credits.usable` |
+| DeepSeek | `GET /user/balance` | USD balance and `is_available` |
+
+All three are free account-metadata reads — checking costs nothing.
+
+Requirements are derived from the cost dials, not hardcoded, so raising
+`SEEDS_PER_NICHE` raises the bar a run must clear. At current defaults: SE Ranking
+~4,600 credits, Scrappa ~430, DeepSeek $0.10.
+
+A bounced run creates **no `pipeline_runs` row** — nothing ran. The result is
+written to `system_config.credit_preflight` and the dashboard shows a
+**Credits not sufficient** banner on the Overview page, with the shortfall per
+provider. `GET /api/credits` returns live balances plus the last preflight.
+
+A provider whose balance endpoint is unreachable is treated as OK. Blocking every
+run because a status endpoint had a bad minute would be a worse failure than the
+one this guard prevents — and the run's own 4xx handling still fails loudly if the
+credits really are gone.
+
+Use `--skip-credit-check` to start anyway (debugging only).
+
 ## Configuration
 
 All settings are environment variables; none require a code change. See
@@ -191,6 +223,7 @@ cp .env.example .env        # fill in your own keys
 ./.venv/bin/python run_pipeline.py                    # all active websites
 ./.venv/bin/python run_pipeline.py --website_id 1     # one site
 ./.venv/bin/python run_pipeline.py --ignore-pause     # override the dashboard pause
+./.venv/bin/python run_pipeline.py --skip-credit-check  # start despite low credits
 ```
 
 API and dashboard:

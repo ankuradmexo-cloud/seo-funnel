@@ -4,7 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routes import (
-    agent_calls, automation, keywords, niches, overview, runs, usage, websites,
+    agent_calls, automation, credits, keywords, niches, overview, runs, usage,
+    websites,
 )
 
 app = FastAPI(title="Keyword Funnel Dashboard API")
@@ -31,6 +32,7 @@ app.include_router(niches.router, prefix="/api")
 app.include_router(overview.router, prefix="/api")
 app.include_router(automation.router, prefix="/api")
 app.include_router(usage.router, prefix="/api")
+app.include_router(credits.router, prefix="/api")
 
 
 @app.get("/health")

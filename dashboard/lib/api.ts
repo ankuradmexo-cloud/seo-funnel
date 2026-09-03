@@ -76,7 +76,22 @@ export type UsageEndpoint = {
   total_credits: number; total_tokens: number; runs: number;
 };
 
+export type ProviderBalance = {
+  provider: string; ok: boolean;
+  remaining: number | null; required: number | null;
+  unit: string; detail: string | null; checked: boolean;
+};
+
+export type CreditStatus = {
+  ok: boolean;
+  providers: ProviderBalance[];
+  last_preflight: {
+    ok: boolean; blocked_by: string[]; reason: string | null; checked_at?: string;
+  } | null;
+};
+
 export const api = {
+  credits: () => req<CreditStatus>("/credits"),
   usage: () => req<{ totals: UsageTotal[]; by_endpoint: UsageEndpoint[] }>("/usage"),
   overview: () => req<Overview>("/overview"),
   websites: () => req<SiteOverview[]>("/websites"),

@@ -99,3 +99,23 @@ textarea { width: 100%; min-height: 74px; resize: vertical; }
 .drawer .row-label span:first-child { color: var(--muted); }
 .trend { display: flex; align-items: flex-end; gap: 4px; height: 62px; margin-top: 8px; }
 .trend > i { flex: 1; background: var(--blue-500); border-radius: 2px 2px 0 0; min-height: 3px; }
+
+/* Credit preflight. A run is bounced before any provider is called when a
+   balance is short, so this panel is the only place that failure is visible -
+   nothing appears in the runs list, because no run was started. */
+.panel.blocked {
+  border-color: #f0b4a4;
+  background: #fdf4f1;
+}
+.panel.blocked h2 { color: #a03a21; }
+.credit-rows { display: flex; flex-direction: column; gap: 6px; }
+.credit-row {
+  display: flex; justify-content: space-between; gap: 16px;
+  padding: 8px 12px; background: #fff; border: 1px solid #f0b4a4; border-radius: 4px;
+  font-size: 13px;
+}
+.credit-row b { text-transform: capitalize; }
+.credit-strip {
+  display: flex; gap: 14px; font-size: 12px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}

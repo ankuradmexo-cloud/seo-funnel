@@ -1,15 +1,21 @@
 "use client";
 import { useEffect, useState } from "react";
-import { api, Overview } from "@/lib/api";
+import { api, CreditStatus, Overview } from "@/lib/api";
 import { Progress, Stat, StatusBadge, fmt } from "@/components/ui";
 
 export default function OverviewPage() {
   const [data, setData] = useState<Overview | null>(null);
+  const [credits, setCredits] = useState<CreditStatus | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = () => api.overview().then(setData).catch((e) => setErr(String(e)));
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    // Balance reads are free account-metadata calls - no credits are spent
+    // showing this, and a failed read must not blank the page.
+    api.credits().then(setCredits).catch(() => setCredits(null));
+  }, []);
 
   async function toggleAutomation() {
     if (!data) return;
@@ -39,6 +45,29 @@ export default function OverviewPage() {
       <h1>Overview</h1>
       <p className="sub">All websites at a glance.</p>
 
+      {credits && !credits.ok && (
+        <div className="panel blocked">
+          <h2 style={{ marginBottom: 4 }}>Credits not sufficient</h2>
+          <p className="muted" style={{ margin: "0 0 12px" }}>
+            Runs will not start until this is topped up. The check happens before
+            any provider is called, so nothing is being spent in the meantime.
+          </p>
+          <div className="credit-rows">
+            {credits.providers.filter((p) => !p.ok).map((p) => (
+              <div key={p.provider} className="credit-row">
+                <b>{p.provider}</b>
+                <span>
+                  {p.unit === "USD" ? `$${(p.remaining ?? 0).toFixed(2)}` :
+                    `${(p.remaining ?? 0).toLocaleString()} credits`} left
+                  {p.required != null && ` · needs ~${p.unit === "USD"
+                    ? `$${p.required.toFixed(2)}` : p.required.toLocaleString()}`}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="panel spread">
         <div>
           <h2 style={{ marginBottom: 4 }}>Automation</h2>
@@ -49,6 +78,17 @@ export default function OverviewPage() {
           </span>
         </div>
         <div className="row">
+          {credits?.ok && (
+            <span className="credit-strip">
+              {credits.providers.map((p) => (
+                <span key={p.provider} title={p.detail ?? ""}>
+                  {p.provider} {p.unit === "USD"
+                    ? `$${(p.remaining ?? 0).toFixed(2)}`
+                    : (p.remaining ?? 0).toLocaleString()}
+                </span>
+              ))}
+            </span>
+          )}
           <StatusBadge status={data.automation_enabled ? "active" : "exhausted"} />
           <button className={data.automation_enabled ? "danger" : "primary"}
                   onClick={toggleAutomation} disabled={busy}>
