@@ -1,0 +1,101 @@
+:root {
+  --bg: #f7f9fc; --surface: #fff; --border: #e2e8f0;
+  --text: #16233a; --muted: #66758c;
+  --blue-50: #eaf1fd; --blue-100: #d3e3fb; --blue-500: #3b7dea;
+  --blue-700: #2158b8; --blue-900: #163c82;
+  --green: #157f4c; --green-bg: #e6f4ed;
+  --amber: #9a6700; --amber-bg: #fff4e0;
+  --danger: #c0392b; --danger-bg: #fbeae8;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 14px;
+}
+a { color: inherit; text-decoration: none; }
+
+.shell { display: flex; min-height: 100vh; }
+.sidebar {
+  width: 210px; flex-shrink: 0; background: var(--surface);
+  border-right: 1px solid var(--border); padding: 20px 0;
+}
+.brand { font-weight: 700; font-size: 15px; padding: 0 20px 18px; letter-spacing: -0.01em; }
+.nav a {
+  display: block; padding: 9px 20px; color: var(--muted); font-weight: 500;
+  border-left: 2px solid transparent;
+}
+.nav a:hover { background: var(--blue-50); color: var(--blue-700); }
+.nav a.active { color: var(--blue-700); background: var(--blue-50); border-left-color: var(--blue-500); }
+.main { flex: 1; padding: 26px 32px 60px; min-width: 0; }
+
+h1 { font-size: 19px; margin: 0 0 4px; letter-spacing: -0.01em; }
+.sub { color: var(--muted); margin: 0 0 22px; }
+h2 { font-size: 15px; margin: 0 0 12px; }
+
+.panel {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 18px 20px; margin-bottom: 18px;
+}
+.row { display: flex; align-items: center; gap: 12px; }
+.spread { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+
+.stat { display: flex; flex-direction: column; gap: 2px; }
+.stat b { font-size: 21px; font-weight: 700; line-height: 1.1; }
+.stat span { color: var(--muted); font-size: 12px; }
+.stats-row { display: flex; flex-wrap: wrap; gap: 26px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+tbody tr:hover { background: var(--blue-50); }
+.table-wrap { overflow-x: auto; }
+.nowrap { white-space: nowrap; }
+
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.b-blue { background: var(--blue-50); color: var(--blue-700); }
+.b-green { background: var(--green-bg); color: var(--green); }
+.b-amber { background: var(--amber-bg); color: var(--amber); }
+.b-red { background: var(--danger-bg); color: var(--danger); }
+.b-grey { background: #eef1f5; color: var(--muted); }
+
+button, select, input, textarea {
+  font: inherit; padding: 7px 11px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+}
+button { cursor: pointer; font-weight: 600; color: var(--blue-700); }
+button:hover:not(:disabled) { border-color: var(--blue-500); background: var(--blue-50); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+button.primary { background: var(--blue-700); border-color: var(--blue-700); color: #fff; }
+button.primary:hover:not(:disabled) { background: var(--blue-900); }
+button.danger { color: var(--danger); }
+textarea { width: 100%; min-height: 74px; resize: vertical; }
+
+.bar { height: 6px; background: #eef1f5; border-radius: 3px; overflow: hidden; width: 130px; }
+.bar > i { display: block; height: 100%; background: var(--blue-500); }
+.muted { color: var(--muted); }
+.empty { padding: 22px; text-align: center; color: var(--muted); }
+.err { background: var(--danger-bg); color: var(--danger); padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; }
+
+/* Keyword detail drawer. Rendered as a fixed overlay rather than a panel
+   below the table - clicking a row previously opened the detail off-screen,
+   so it looked like nothing had happened. */
+.drawer-backdrop {
+  position: fixed; inset: 0; background: rgba(22, 35, 58, .28);
+  z-index: 40;
+}
+.drawer {
+  position: fixed; top: 0; right: 0; height: 100vh;
+  width: min(460px, 100%); background: var(--surface);
+  border-left: 1px solid var(--border); box-shadow: -12px 0 32px rgba(22,35,58,.10);
+  padding: 22px 24px; overflow-y: auto; z-index: 41;
+}
+.drawer h2 { margin-top: 20px; }
+.drawer .row-label {
+  display: flex; justify-content: space-between; gap: 16px;
+  padding: 7px 0; border-bottom: 1px solid var(--border);
+}
+.drawer .row-label span:first-child { color: var(--muted); }
+.trend { display: flex; align-items: flex-end; gap: 4px; height: 62px; margin-top: 8px; }
+.trend > i { flex: 1; background: var(--blue-500); border-radius: 2px 2px 0 0; min-height: 3px; }

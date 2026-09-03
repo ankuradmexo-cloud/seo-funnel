@@ -1,0 +1,18 @@
+# Secrets - never commit. Render/Vercel hold these as env vars instead.
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Next.js dashboard
+dashboard/node_modules/
+dashboard/.next/
+dashboard/out/
+dashboard/.vercel/
+dashboard/.env.local
+
+# macOS
+.DS_Store
