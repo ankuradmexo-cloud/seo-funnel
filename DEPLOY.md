@@ -93,7 +93,16 @@ For manual runs that should ignore the pause: `python run_pipeline.py --ignore-p
 
 ## Cost per run
 
-Roughly $0.60-1.00, dominated by SE Ranking `questions` (10 credits per
-returned keyword). The dials are `SEEDS_PER_NICHE` and
-`QUESTIONS_LIMIT_PER_SEED` - cost scales with their product. The `/usage` page
-shows real measured spend per provider and endpoint.
+Measured, not estimated: **~$0.19 per website-run**, **~$0.58 per full-fleet
+dispatch** of three sites, **~$35/month** at two dispatches a day. Six sites
+would run ~$70/month.
+
+Dominated by SE Ranking `questions` (10 credits per returned keyword), so
+per-run cost varies more than 6x by niche - a niche that returns a lot of
+questions costs a lot more. The dials are `SEEDS_PER_NICHE` and
+`QUESTIONS_LIMIT_PER_SEED`; cost scales with their product.
+
+Unit prices (kept in `src/api/routes/usage.py`):
+Scrappa $10 = 33,000 credits ($0.000303); SE Ranking $50 = 250,000 credits
+($0.0002). The `/usage` page shows real measured spend per provider and
+endpoint.

@@ -6,12 +6,12 @@ router = APIRouter(tags=["usage"])
 
 # Credit costs differ per provider and aren't interchangeable, so the dashboard
 # needs the unit price to turn credits into money.
-#   Scrappa    top-up packs, $0.0002-0.0003/credit depending on pack size
-#   SE Ranking Wallet top-up, $50 = 250k credits
+#   Scrappa    $10 top-up = 33,000 credits
+#   SE Ranking Wallet top-up, $50 = 250,000 credits
 #   DeepSeek   billed per token, not credits
 UNIT_COST_USD = {
-    "scrappa": 0.00025,
-    "seranking": 0.0002,
+    "scrappa": 10.0 / 33_000,     # $0.000303
+    "seranking": 50.0 / 250_000,  # $0.000200
 }
 
 

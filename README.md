@@ -12,7 +12,7 @@ several plausible ones were removed after the data came back — see
 | **Sites** | trusted-topreviews.com, dealstackpro.com, trustedtopcasinos.com (scales to 6) |
 | **Output** | 2 publishable keywords per site per day |
 | **Schedule** | GitHub Actions, `0 6,18 * * *` |
-| **Cost** | ~$0.18 per site per run (~$0.54 for a full fleet dispatch) |
+| **Cost** | ~$0.19 per site per run · ~$0.58 per fleet dispatch · **~$35/month** |
 | **Runtime** | 15–40 min for all three sites |
 
 ## Architecture
@@ -88,11 +88,36 @@ approvals 62–78.
 | Provider | Used for | Billing |
 |---|---|---|
 | **DeepSeek** | Seed generation, niche discovery, relevance filter, SEO judge | Per token, negligible |
-| **Scrappa** | Autocomplete expansion, live SERP | 1 credit/request, ~$0.00025 |
-| **SE Ranking** | Demand validation, `questions` discovery | `export` 100 flat; `questions` 10/keyword returned |
+| **Scrappa** | Autocomplete expansion, live SERP | 1 credit/request; $10 = 33,000 credits ($0.000303) |
+| **SE Ranking** | Demand validation, `questions` discovery | `export` 100 flat; `questions` 10/keyword returned; $50 = 250,000 credits ($0.0002) |
 | **Supabase** | Postgres + PostgREST | — |
 
-SE Ranking is ~83% of spend on ~8% of the calls. Both cost dials point at it.
+SE Ranking is ~63% of spend on ~8% of the calls. Both cost dials point at it.
+
+### What it actually costs
+
+Measured from the `api_usage` table on the first full-fleet dispatch:
+
+| Run | Niche | Scrappa | SE Ranking | Cost |
+|---|---|---|---|---|
+| 19 | Productivity Software | 331 | 1,450 | $0.3903 |
+| 20 | Casino Payments | 245 | 270 | $0.1282 |
+| 21 | Electronics Coupons | 142 | 100 | $0.0630 |
+| | **Fleet total** | **718** | **1,820** | **$0.5816** |
+
+Per-run cost varies more than 6x by niche — run 19 spent as much as the other two
+combined, because `questions` bills per keyword *returned* and that niche returns a
+lot of them.
+
+Projected at two dispatches a day:
+
+| Sites | Per day | Per month | Scrappa credits/mo | SE Ranking credits/mo |
+|---|---|---|---|---|
+| 3 (today) | $1.16 | **~$35** | 43,080 | 109,200 |
+| 6 (planned) | $2.33 | **~$70** | 86,160 | 218,400 |
+
+At three sites, a $10 Scrappa top-up lasts ~23 days and a $50 SE Ranking top-up
+lasts ~69 days. A 100,000-credit SE Ranking trial lasts ~27 days.
 
 ## What was tried and dropped
 
