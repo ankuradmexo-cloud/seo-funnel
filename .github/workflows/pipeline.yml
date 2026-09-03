@@ -1,0 +1,51 @@
+# The keyword pipeline's schedule.
+#
+# This lives here rather than in render.yaml because Render's free tier
+# covers web services but not cron jobs. A run takes 15-40 minutes, well
+# inside Actions' 6-hour job limit, and public repos get unlimited Actions
+# minutes - which is the whole reason this repo is public.
+#
+# Secrets come from repo Settings > Secrets and variables > Actions.
+# Nothing secret is ever committed; .env is gitignored.
+name: keyword-pipeline
+
+on:
+  schedule:
+    # 06:00 and 18:00 UTC. Two firings per day gives each website two shots
+    # at its 2-keyword target while rotating through niches.
+    - cron: "0 6,18 * * *"
+  # Lets you trigger a run by hand from the Actions tab, which is also how
+  # you smoke-test the deploy without waiting for a scheduled window.
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    # A stuck provider call shouldn't burn hours of Actions time.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Run pipeline
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          SCRAPPA_API_KEY: ${{ secrets.SCRAPPA_API_KEY }}
+          SERANKING_API_KEY: ${{ secrets.SERANKING_API_KEY }}
+          # Pipeline tuning - see src/config.py for what each one costs.
+          SEEDS_PER_NICHE: "30"
+          QUESTIONS_LIMIT_PER_SEED: "15"
+          RELATED_LIMIT_PER_SEED: "0"
+          MAX_KEYWORDS_PER_SITE_PER_DAY: "2"
+          MAX_DIFFICULTY_TO_JUDGE: "40"
+          MAX_TOOL_CALLS_PER_RUN: "100"
+          MAX_CANDIDATES_TO_JUDGE_PER_RUN: "200"
+        run: python run_pipeline.py

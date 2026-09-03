@@ -6,7 +6,7 @@ Three pieces, two platforms:
 |---|---|---|
 | Next.js dashboard (`dashboard/`) | Vercel | Static/SSR frontend, Vercel's native target |
 | FastAPI (`src/api/`) | Render web service | Holds the Supabase service_role key server-side |
-| Pipeline (`run_pipeline.py`) | Render cron job | Runs 15-40 min; serverless timeouts are far shorter |
+| Pipeline (`run_pipeline.py`) | GitHub Actions cron | Runs 15-40 min; Render's free tier has no cron jobs |
 | Postgres | Supabase | Already hosted |
 | Article publishing | n8n | Already hosted separately, unchanged |
 
@@ -17,25 +17,48 @@ Run these in the Supabase SQL editor, in order:
 1. `supabase/schema.sql` - full schema, safe to re-run
 2. `supabase/migration_pending.sql` - count views + `api_usage`
 
-## 2. Render (API + cron)
+## 2. Render (API)
 
-`render.yaml` defines both services. Point Render at this repo and it picks
-them up as a Blueprint.
+`render.yaml` defines the web service. Point Render at this repo and it picks
+it up as a Blueprint.
 
-Set these on **both** services (marked `sync: false`, so Render prompts):
+The service is on `plan: free`, which spins down when idle - the dashboard's
+first request after a quiet period takes ~50s, then behaves normally.
+
+Set these (marked `sync: false`, so Render prompts):
 
 - `SUPABASE_URL`, `SUPABASE_KEY` (service_role)
 - `DEEPSEEK_API_KEY`, `SCRAPPA_API_KEY`, `SERANKING_API_KEY`
-
-Set on the **web service only**:
-
 - `ALLOWED_ORIGINS` - the Vercel URL, e.g. `https://your-app.vercel.app`.
   Comma-separated for multiple. Without this the dashboard's requests are
   blocked by CORS, since it runs on a different origin.
 
-The cron is scheduled `0 6,18 * * *` (twice daily). Each firing processes one
-niche per active website. Two firings gives each site two chances at its
-2-keyword daily target.
+Verify with `curl https://<service>.onrender.com/health`.
+
+## 2b. GitHub Actions (pipeline schedule)
+
+Render's free tier covers web services but **not cron jobs**, so the schedule
+lives in `.github/workflows/pipeline.yml`. This repo is public specifically
+because public repos get unlimited Actions minutes - two 40-minute runs a day
+would blow through a private repo's 2,000 min/month allowance.
+
+Add the five secrets under **Settings > Secrets and variables > Actions**:
+`SUPABASE_URL`, `SUPABASE_KEY`, `DEEPSEEK_API_KEY`, `SCRAPPA_API_KEY`,
+`SERANKING_API_KEY`. Do not add the tuning values - those are plain `env:`
+entries in the workflow.
+
+Scheduled at `0 6,18 * * *` (twice daily). Each firing processes one niche per
+active website; two firings gives each site two chances at its 2-keyword daily
+target. Use **Actions > keyword-pipeline > Run workflow** to fire one by hand.
+
+Two Actions gotchas worth knowing:
+
+- Scheduled workflows are **disabled automatically after 60 days of repo
+  inactivity**. If keywords quietly stop appearing, check the Actions tab
+  first.
+- Schedules fire on a best-effort basis and can be delayed under load. This
+  pipeline is idempotent per day (`MAX_KEYWORDS_PER_SITE_PER_DAY`), so a late
+  or doubled firing is harmless.
 
 ## 3. Vercel (dashboard)
 
@@ -53,16 +76,18 @@ Nothing secret belongs here - the service_role key stays on Render.
 
 Vercel and Render each need the other's URL, so deploy in this order:
 
-1. Deploy Render first, note the API URL
-2. Deploy Vercel with `NEXT_PUBLIC_API_URL` set to it, note the Vercel URL
-3. Set `ALLOWED_ORIGINS` on Render to the Vercel URL and redeploy
+1. Push to GitHub, add the five Actions secrets
+2. Deploy Render, note the API URL (set `ALLOWED_ORIGINS` to a placeholder)
+3. Deploy Vercel with `NEXT_PUBLIC_API_URL` set to it, note the Vercel URL
+4. Set `ALLOWED_ORIGINS` on Render to the Vercel URL and redeploy
 
 ## Pausing
 
-The dashboard's pause switch does **not** stop Render's scheduler - it can't.
+The dashboard's pause switch does **not** stop the Actions schedule - it can't.
 It writes `automation_enabled=false` to `system_config`, and `run_pipeline.py`
-checks that on startup and exits before spending any API credits. The cron
-still fires; it just does nothing.
+checks that on startup and exits before spending any API credits. The workflow
+still fires; it just exits in seconds, costing a negligible slice of Actions
+minutes and zero API credits.
 
 For manual runs that should ignore the pause: `python run_pipeline.py --ignore-pause`
 
