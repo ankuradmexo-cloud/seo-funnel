@@ -35,7 +35,8 @@ class SERankingClient:
         )
         self._source = source
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10),
+           reraise=True)
     def keyword_metrics(self, keywords: list[str]) -> list[dict]:
         resp = self._client.post(
             "/keywords/export",
@@ -48,7 +49,8 @@ class SERankingClient:
             self._usage.record("seranking", "keywords/export", credits=SERANKING_EXPORT_CREDITS)
         return resp.json()
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10),
+           reraise=True)
     def _discovery_get(self, path: str, keyword: str, limit: int) -> list[dict]:
         resp = self._client.get(
             path, params={"source": self._source, "keyword": keyword, "limit": limit}

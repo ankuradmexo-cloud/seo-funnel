@@ -23,14 +23,16 @@ class ScrappaClient:
         if self._usage:
             self._usage.record("scrappa", endpoint, credits=SCRAPPA_CREDITS_PER_CALL)
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10),
+           reraise=True)
     def autocomplete(self, query: str) -> list[str]:
         resp = self._client.get("/search-light/autocomplete", params={"query": query})
         self._track("autocomplete")
         resp.raise_for_status()
         return resp.json().get("suggestions") or []
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10),
+           reraise=True)
     def google_search(self, query: str) -> dict:
         """Full Google Search result. related_searches, related_questions (People
         Also Ask), and organic_results all come back from this single call - reuse

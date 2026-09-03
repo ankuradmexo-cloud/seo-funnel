@@ -6,6 +6,16 @@ from src.config import settings
 from src.models.schemas import DiscoveryCandidate
 
 
+def _is_transient(exc: Exception) -> bool:
+    """Server-side hiccups and network trouble are worth skipping past; a 4xx
+    is not. A bad key or an exhausted quota returns 401/402/429 on every seed,
+    and swallowing that would let a run finish "successfully" with zero
+    keywords - which then retires niches for a fault that is not theirs."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500
+    return isinstance(exc, (httpx.TimeoutException, httpx.TransportError))
+
+
 def _autocomplete_expand(scrappa: ScrappaClient, seed: str, depth: int = 2, breadth: int = 10) -> set[str]:
     """BFS out from the seed via Scrappa autocomplete. Each call is 1 credit and
     returns up to 10 keywords, so recursing one extra level multiplies breadth
@@ -17,8 +27,10 @@ def _autocomplete_expand(scrappa: ScrappaClient, seed: str, depth: int = 2, brea
         for query in frontier:
             try:
                 suggestions = scrappa.autocomplete(query)[:breadth]
-            except httpx.HTTPStatusError:
-                continue  # documented transient 503 - skip, don't kill the run
+            except httpx.HTTPError as e:
+                if not _is_transient(e):
+                    raise  # bad key / out of credits - fail loudly
+                continue  # transient 5xx or timeout - skip this branch
             for s in suggestions:
                 if s not in seen:
                     seen.add(s)
@@ -56,7 +68,9 @@ def discover_keywords(
             for item in seranking.question_keywords(seed_keyword, limit=settings.questions_limit_per_seed):
                 if item.get("keyword"):
                     candidates.setdefault(item["keyword"], set()).add("questions")
-        except httpx.HTTPError:
+        except httpx.HTTPError as e:
+            if not _is_transient(e):
+                raise
             pass  # one source failing shouldn't lose the other two
 
     if settings.related_limit_per_seed > 0:
@@ -64,8 +78,9 @@ def discover_keywords(
             for item in seranking.related_keywords(seed_keyword, limit=settings.related_limit_per_seed):
                 if item.get("keyword"):
                     candidates.setdefault(item["keyword"], set()).add("related")
-        except httpx.HTTPError:
-            pass
+        except httpx.HTTPError as e:
+            if not _is_transient(e):
+                raise
 
     return [
         DiscoveryCandidate(keyword=kw, source=sorted(sources))

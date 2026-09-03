@@ -27,6 +27,9 @@ class DeepSeekClient:
         stop=stop_after_attempt(3),
         wait=wait_exponential(min=1, max=10),
         retry=retry_if_not_exception_type(BudgetExceeded),
+        # Without this tenacity raises RetryError instead of the original
+        # exception, and every `except httpx.*` handler downstream misses it.
+        reraise=True,
     )
     def _call(self, messages: list[dict]) -> str:
         if self.calls_made >= self.max_calls:
