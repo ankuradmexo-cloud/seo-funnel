@@ -17,8 +17,8 @@ class SERankingClient:
     regardless of batch size (1-5000 keywords) - always batch the full
     candidate list into one call.
 
-    related/questions bill 10 credits per RETURNED keyword. On the Wallet
-    top-up plan ($50 = 250k credits, $0.0002/credit) that works out to
+    related/questions bill 10 credits per RETURNED keyword. At $50 for
+    250,000 credits ($0.0002/credit) that works out to
     ~$0.002/keyword, cheap enough to be worth their high real-demand hit
     rate (questions measured ~93%). longtail is deliberately absent -
     measured 0% real-demand hit rate across two separate tests."""

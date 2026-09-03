@@ -89,7 +89,7 @@ approvals 62–78.
 |---|---|---|
 | **DeepSeek** | Seed generation, niche discovery, relevance filter, SEO judge | Per token, negligible |
 | **Scrappa** | Autocomplete expansion, live SERP | 1 credit/request; $10 = 33,000 credits ($0.000303) |
-| **SE Ranking** | Demand validation, `questions` discovery | `export` 100 flat; `questions` 10/keyword returned; $50 = 250,000 credits ($0.0002) |
+| **SE Ranking** | Demand validation, `questions` discovery | $50 = 250,000 credits ($0.0002). `export` 100 flat; `questions` 10/keyword returned |
 | **Supabase** | Postgres + PostgREST | — |
 
 SE Ranking is ~63% of spend on ~8% of the calls. Both cost dials point at it.
@@ -117,7 +117,7 @@ Projected at two dispatches a day:
 | 6 (planned) | $2.33 | **~$70** | 86,160 | 218,400 |
 
 At three sites, a $10 Scrappa top-up lasts ~23 days and a $50 SE Ranking top-up
-lasts ~69 days. A 100,000-credit SE Ranking trial lasts ~27 days.
+lasts ~69 days.
 
 ## What was tried and dropped
 
