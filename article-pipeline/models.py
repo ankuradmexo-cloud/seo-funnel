@@ -212,6 +212,12 @@ class SeoQaReport(BaseModel):
     overall_assessment: str
 
 
+# --- step 14: WordPress category assignment (pipeline/categorize.py) --------
+
+class CategoryChoice(BaseModel):
+    category: str  # must exactly match one of the website's own pre-defined categories
+
+
 # --- step 14: interlinking / backlinking -------------------------------------
 # Same "measure, don't just instruct" shape as UnansweredQuestionFix above:
 # the LLM only proposes an anchor + URL pair, never rewrites article text

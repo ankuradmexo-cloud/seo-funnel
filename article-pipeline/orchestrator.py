@@ -26,6 +26,7 @@ from config import settings
 from pipeline.article_strategy import build_strategy
 from pipeline.article_writer import write_article
 from pipeline.backlinking import backlink_older_articles
+from pipeline.categorize import choose_category
 from pipeline.common_content import find_common_content
 from pipeline.community_research import research_community
 from pipeline.competitor_research import research_competitors
@@ -199,17 +200,28 @@ def _publish_to_wordpress(
 
     media_id = wordpress_client.upload_featured_image(wp_config, hero_image, outline["title"]) if hero_image else None
     html_content = _wp_body_html(article_markdown, outline["title"], hero_image)
-    # Categories are off for now - LLM-guessed categories came out too
-    # narrow/inconsistent (e.g. "Payroll Software" instead of a reusable
-    # "Software" bucket). Re-enable via get_or_create_category() once there's
-    # a real, fixed per-site category list to assign from instead of asking
-    # the LLM to invent one.
+    # Category comes from the website's own small, deliberate category list
+    # (websites.category - the same field that drives niche discovery),
+    # never invented - the LLM only picks which of these EXISTING categories
+    # fits best. get_or_create_category means a category that's never been
+    # used on WordPress yet gets created the first time it's needed, so
+    # editing that list (e.g. adding a category via the dashboard) is all
+    # that's needed for it to show up on WordPress too, on the next article
+    # that gets assigned to it.
+    available_categories = db_client.get_website_categories(website_id)
+    category_id = None
+    if available_categories:
+        # No raw keyword string available in this function (only slug/
+        # outline) - the title alone is sufficient signal, since
+        # ensure_exact_phrase already guarantees the keyword phrase is in it.
+        chosen_category = choose_category(deepseek, outline["title"], slug.replace("-", " "), available_categories)
+        category_id = wordpress_client.get_or_create_category(wp_config, chosen_category)
     author_pool = wp_config.get("wp_author_ids") or []
     author_id = random.choice(author_pool) if author_pool else None
     post = wordpress_client.create_post(
         wp_config, outline["title"], html_content, outline["meta_description"],
         media_id, status=settings.wp_publish_status, slug=slug,
-        author_id=author_id,
+        category_id=category_id, author_id=author_id,
     )
     log_step("wordpress_publish", post or {"failed": True})
     if not post:

@@ -9,6 +9,7 @@ clients/pexels_client.py - a run should still work with zero Supabase config,
 it just skips interlinking, backlinking, and WordPress publishing.
 """
 
+import re
 from datetime import date
 from typing import Optional
 
@@ -23,6 +24,25 @@ if settings.supabase_url and settings.supabase_key:
 
 def configured() -> bool:
     return _client is not None
+
+
+def get_website_categories(website_id: int) -> list[str]:
+    """websites.category is a comma-separated free-text field that already
+    drives niche discovery (e.g. "AI tools, business/SaaS software
+    comparisons, productivity software, ...") - a small, deliberate, stable
+    list per site, reused here as the fixed set of WordPress categories an
+    article can be assigned to."""
+    if _client is None:
+        return []
+    resp = _client.table("websites").select("category").eq("website_id", website_id).execute()
+    if not resp.data or not resp.data[0].get("category"):
+        return []
+    raw = [c.strip() for c in resp.data[0]["category"].split(",") if c.strip()]
+    # The source text is natural prose ("...consumer electronics buying
+    # guides, and travel booking platforms") - strip a leading "and "/"or "
+    # left over from the Oxford comma before the last item, or it becomes
+    # a literal (wrong) category name.
+    return [re.sub(r"^(and|or)\s+", "", c, flags=re.IGNORECASE) for c in raw]
 
 
 def get_website_wp_config(website_id: int) -> Optional[dict]:
