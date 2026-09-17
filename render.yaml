@@ -1,10 +1,21 @@
-# Render blueprint: the FastAPI dashboard API only.
+# Render blueprint: the FastAPI dashboard API.
 #
 # The Next.js dashboard is NOT here - it deploys to Vercel and talks to the
-# API service below over HTTPS. The pipeline is NOT here either: Render's
-# free tier has no cron jobs, so the schedule lives in
-# .github/workflows/pipeline.yml. Keep that file's env block in sync with
-# any tuning changes.
+# API service below over HTTPS. Neither pipeline's SCHEDULE lives here:
+# Render's free tier has no cron jobs, so the keyword pipeline
+# (.github/workflows/pipeline.yml) and the article pipeline
+# (.github/workflows/article_pipeline.yml) both run on their own GitHub
+# Actions schedules instead. Keep those files' env blocks in sync with any
+# tuning changes here.
+#
+# This service DOES now need article-pipeline/'s own environment, not just
+# src/'s - the dashboard's "Find backlink candidates" button
+# (src/api/routes/backlinks.py) spawns article-pipeline/tools/backlink_gap.py
+# as a subprocess, using its own separate venv (buildCommand below sets that
+# venv up identically to local dev, so the exact same code path runs in
+# both places - no special-casing between environments). If a future
+# dashboard action needs to trigger the full article pipeline itself
+# (not just backlink research), it would use this same venv.
 #
 # plan: free means the service spins down when idle - expect a ~50s cold
 # start on the dashboard's first request after a quiet period.
@@ -18,7 +29,9 @@ services:
     name: keyword-funnel-api
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: |
+      pip install -r requirements.txt
+      cd article-pipeline && python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
     startCommand: uvicorn src.api.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:

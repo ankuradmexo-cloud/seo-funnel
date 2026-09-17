@@ -72,6 +72,11 @@ button.primary:hover:not(:disabled) { background: var(--blue-900); }
 button.danger { color: var(--danger); }
 textarea { width: 100%; min-height: 74px; resize: vertical; }
 
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.grid2 label { display: block; margin-bottom: 4px; }
+.grid2 input, .grid2 select { width: 100%; }
+@media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+
 .bar { height: 6px; background: #eef1f5; border-radius: 3px; overflow: hidden; width: 130px; }
 .bar > i { display: block; height: 100%; background: var(--blue-500); }
 .muted { color: var(--muted); }

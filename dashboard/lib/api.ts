@@ -22,6 +22,13 @@ export type SiteOverview = {
   name: string;
   category: string;
   active: boolean;
+  domain: string | null;
+  wp_base_url: string | null;
+  wp_username: string | null;
+  wp_app_password: string | null;
+  seo_plugin: "yoast" | "rankmath" | "none";
+  articles_per_day: number;
+  article_automation_enabled: boolean;
   status_counts: StatusCounts;
   awaiting_publish: number;
   in_progress: number;
@@ -50,6 +57,37 @@ export type Keyword = {
   judge_score: number | null; judge_rationale: string | null;
   intent_cluster: string | null; run_id: number | null;
   last_updated: string; target_url: string | null;
+};
+
+export type BacklinkGapJob = {
+  job_id: number; keyword_id: number; website_id: number;
+  status: "running" | "success" | "failed";
+  error_message: string | null;
+  started_at: string; finished_at: string | null;
+};
+
+export type BacklinkSampleLink = {
+  linked_to_competitor: string; from_page: string;
+  from_page_title: string | null; anchor: string | null; nofollow: boolean | null;
+};
+
+export type BacklinkCandidate = {
+  candidate_id: number; job_id: number; keyword_id: number; website_id: number;
+  referring_domain: string; domain_inlink_rank: number | null;
+  competitors_linked_count: number | null;
+  sample_links: BacklinkSampleLink[];
+  status: "new" | "contacted" | "replied" | "linked" | "rejected";
+  found_at: string;
+};
+
+export type PublishedArticle = {
+  article_id: number; keyword_id: number | null; website_id: number;
+  wp_post_id: number | null; wp_post_url: string | null;
+  title: string; slug: string;
+  quality_gate_verdict: "pass" | "warn" | "fail" | null;
+  cost_usd: number | null; hero_image_url: string | null;
+  published_at: string;
+  keywords?: { keyword: string } | null;
 };
 
 export type Run = {
@@ -95,11 +133,21 @@ export const api = {
   usage: () => req<{ totals: UsageTotal[]; by_endpoint: UsageEndpoint[] }>("/usage"),
   overview: () => req<Overview>("/overview"),
   websites: () => req<SiteOverview[]>("/websites"),
-  updateWebsite: (id: number, body: Partial<{ name: string; category: string; active: boolean }>) =>
-    req(`/websites/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  updateWebsite: (
+    id: number,
+    body: Partial<{
+      name: string; category: string; active: boolean; domain: string;
+      wp_base_url: string; wp_username: string; wp_app_password: string;
+      seo_plugin: "yoast" | "rankmath" | "none"; articles_per_day: number;
+      article_automation_enabled: boolean;
+    }>,
+  ) => req(`/websites/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   automation: () => req<{ enabled: boolean }>("/automation"),
   setAutomation: (enabled: boolean) =>
     req<{ enabled: boolean }>("/automation", { method: "POST", body: JSON.stringify({ enabled }) }),
+  articleAutomation: () => req<{ enabled: boolean }>("/automation/articles"),
+  setArticleAutomation: (enabled: boolean) =>
+    req<{ enabled: boolean }>("/automation/articles", { method: "POST", body: JSON.stringify({ enabled }) }),
   keywords: (params: Record<string, string | number | undefined>) => {
     const q = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => v !== undefined && v !== "" && q.set(k, String(v)));
@@ -108,4 +156,13 @@ export const api = {
   runs: (websiteId?: number) =>
     req<Run[]>(`/runs${websiteId ? `?website_id=${websiteId}` : ""}`),
   niches: (websiteId: number) => req<Niche[]>(`/niches?website_id=${websiteId}`),
+  triggerBacklinkGap: (keywordId: number) =>
+    req<{ job_id: number; status: string }>(`/keywords/${keywordId}/backlink-gap`, { method: "POST", body: JSON.stringify({}) }),
+  getBacklinkJob: (jobId: number) => req<BacklinkGapJob>(`/backlink-jobs/${jobId}`),
+  backlinkCandidates: (keywordId: number) =>
+    req<BacklinkCandidate[]>(`/keywords/${keywordId}/backlink-candidates`),
+  setBacklinkCandidateStatus: (candidateId: number, status: BacklinkCandidate["status"]) =>
+    req<BacklinkCandidate>(`/backlink-candidates/${candidateId}`, { method: "PATCH", body: JSON.stringify({ status }) }),
+  articles: (websiteId?: number) =>
+    req<PublishedArticle[]>(`/articles${websiteId ? `?website_id=${websiteId}` : ""}`),
 };

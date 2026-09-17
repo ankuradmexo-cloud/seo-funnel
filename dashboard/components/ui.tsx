@@ -10,6 +10,9 @@ export function StatusBadge({ status }: { status: string }) {
     : status === "running" ? "b-amber"
     : status === "active" ? "b-blue"
     : status === "exhausted" ? "b-grey"
+    : status === "pass" ? "b-green"
+    : status === "warn" ? "b-amber"
+    : status === "fail" ? "b-red"
     : "b-grey";
   return <span className={`badge ${cls}`}>{status}</span>;
 }

@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { api, Keyword, SiteOverview } from "@/lib/api";
 import { StatusBadge, WebsitePicker, fmt } from "@/components/ui";
+import BacklinkCandidatesPanel from "@/components/BacklinkCandidates";
 
 const STATUSES = ["shortlisted", "queued", "published", "judged", "validated", "deduped"];
 
@@ -119,6 +120,8 @@ export default function KeywordsPage() {
                 </p>
               </>
             )}
+
+            <BacklinkCandidatesPanel keywordId={open.keyword_id} />
           </aside>
         </>
       )}

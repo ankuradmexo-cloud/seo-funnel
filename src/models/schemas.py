@@ -12,6 +12,14 @@ class Website(BaseModel):
     category: str
     seed_niches: list[str]
     active: bool = True
+    domain: Optional[str] = None
+    wp_base_url: Optional[str] = None
+    wp_username: Optional[str] = None
+    wp_app_password: Optional[str] = None
+    seo_plugin: Literal["yoast", "rankmath", "none"] = "none"
+    articles_per_day: int = 2
+    article_automation_enabled: bool = True
+    wp_author_ids: list[int] = Field(default_factory=list)
 
 
 class Niche(BaseModel):

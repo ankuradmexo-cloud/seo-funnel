@@ -37,6 +37,25 @@ FastAPI so the service-role key stays server-side and never ships in a
 `NEXT_PUBLIC_` variable. This is why CORS configuration is load-bearing rather
 than a formality.
 
+## Article pipeline (`article-pipeline/`)
+
+A second, independently-scheduled pipeline lives in this same repo: it turns
+a `status='shortlisted'` keyword into a written article and publishes it to
+that website's WordPress site (REST API + Application Passwords), with
+interlinking to/from that site's other published articles and SEO meta
+written to whichever plugin the site uses (Yoast/RankMath/none). It shares
+this repo's Supabase project and API keys but runs on its own GitHub Actions
+schedule (`article_pipeline.yml`, once daily) with its own pause switches -
+a global `system_config.article_automation_enabled` and a per-site
+`websites.article_automation_enabled` column, both independent of keyword
+shortlisting's own `automation_enabled`/`active` switches, so pausing one
+pipeline never pauses the other. Everything it publishes goes live
+immediately (no draft/review step); `websites.articles_per_day` is each
+site's daily cap. See `article-pipeline/README.md` for the pipeline itself
+and `supabase/migration_wordpress_publishing.sql` for the schema it adds.
+A website's WordPress URL/credentials, SEO plugin, daily quota, and article
+pause switch are all configured on the dashboard's Settings page.
+
 ## The pipeline
 
 One run processes **one niche for one website**, chosen round-robin by

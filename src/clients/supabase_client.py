@@ -316,7 +316,13 @@ def update_website(website_id: int, fields: dict) -> Optional[dict]:
     """Only whitelisted columns are updatable from the dashboard - a category
     edit changes what niche discovery generates next, so it's a meaningful
     control, but nothing else about the row should be editable."""
-    allowed = {k: v for k, v in fields.items() if k in {"name", "category", "active"}}
+    allowed = {
+        k: v for k, v in fields.items() if k in {
+            "name", "category", "active",
+            "domain", "wp_base_url", "wp_username", "wp_app_password", "seo_plugin",
+            "articles_per_day", "article_automation_enabled", "wp_author_ids",
+        }
+    }
     if not allowed:
         return get_website(website_id)
     resp = _client.table("websites").update(allowed).eq("website_id", website_id).execute()
@@ -326,6 +332,91 @@ def update_website(website_id: int, fields: dict) -> Optional[dict]:
 def get_website(website_id: int) -> Optional[dict]:
     resp = _client.table("websites").select("*").eq("website_id", website_id).execute()
     return resp.data[0] if resp.data else None
+
+
+# --- article pipeline: WordPress config + published-article registry -------
+# Read/written by article-pipeline/ as well (same Supabase project) - this is
+# the shared source of truth for "which WordPress site does this keyword's
+# website publish to" and "what's already live, for interlinking".
+
+def get_website_wp_config(website_id: int) -> Optional[dict]:
+    resp = (
+        _client.table("websites")
+        .select("website_id, name, wp_base_url, wp_username, wp_app_password, seo_plugin, wp_author_ids")
+        .eq("website_id", website_id)
+        .execute()
+    )
+    return resp.data[0] if resp.data else None
+
+
+def get_published_articles(website_id: int, limit: int = 30) -> list[dict]:
+    """Interlinking candidate pool - most recently published first."""
+    resp = (
+        _client.table("published_articles")
+        .select("article_id, title, wp_post_url, wp_post_id, keyword_id")
+        .eq("website_id", website_id)
+        .order("published_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return resp.data
+
+
+def record_published_article(
+    website_id: int, keyword_id: Optional[int], title: str, slug: str,
+    wp_post_id: Optional[int], wp_post_url: Optional[str],
+) -> dict:
+    resp = (
+        _client.table("published_articles")
+        .insert({
+            "website_id": website_id, "keyword_id": keyword_id, "title": title,
+            "slug": slug, "wp_post_id": wp_post_id, "wp_post_url": wp_post_url,
+        })
+        .execute()
+    )
+    if keyword_id is not None:
+        _client.table("keywords").update(
+            {"status": "published", "target_url": wp_post_url}
+        ).eq("keyword_id", keyword_id).execute()
+    return resp.data[0]
+
+
+def article_automation_enabled() -> bool:
+    """Global kill switch for article generation, independent of the
+    keyword-shortlisting one (`automation_enabled` above)."""
+    return bool(get_config("article_automation_enabled", True))
+
+
+def articles_published_today(website_id: int) -> int:
+    """How many articles this website already has today - the scheduler
+    subtracts this from articles_per_day to know how many more to run."""
+    from datetime import date
+    since = f"{date.today().isoformat()}T00:00:00+00:00"
+    resp = (
+        _client.table("published_articles")
+        .select("article_id")
+        .eq("website_id", website_id)
+        .gte("published_at", since)
+        .execute()
+    )
+    return len(resp.data)
+
+
+def get_shortlisted_keywords_for_articles(website_id: int, limit: int) -> list[dict]:
+    """Keywords ready to be turned into articles for this site - shortlisted,
+    best-judged first. Does not change status; the article pipeline itself
+    flips a keyword to 'published' via record_published_article once the
+    WordPress post actually exists."""
+    resp = (
+        _client.table("keywords")
+        .select("keyword_id, keyword, website_id")
+        .eq("website_id", website_id)
+        .eq("status", "shortlisted")
+        .order("judge_score", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return resp.data
 
 
 # --- dashboard aggregates --------------------------------------------------
@@ -411,3 +502,54 @@ def api_usage_by_endpoint() -> list[dict]:
         .execute()
         .data
     )
+
+
+# --- backlink gap analysis (dashboard-triggered, article-pipeline/tools/backlink_gap.py does the work) ---
+
+def start_backlink_gap_job(keyword_id: int, website_id: int) -> dict:
+    resp = (
+        _client.table("backlink_gap_jobs")
+        .insert({"keyword_id": keyword_id, "website_id": website_id, "status": "running"})
+        .execute()
+    )
+    return resp.data[0]
+
+
+def get_backlink_gap_job(job_id: int) -> Optional[dict]:
+    resp = _client.table("backlink_gap_jobs").select("*").eq("job_id", job_id).execute()
+    return resp.data[0] if resp.data else None
+
+
+def list_backlink_candidates(keyword_id: int) -> list[dict]:
+    resp = (
+        _client.table("backlink_candidates")
+        .select("*")
+        .eq("keyword_id", keyword_id)
+        .order("competitors_linked_count", desc=True)
+        .order("domain_inlink_rank", desc=True)
+        .execute()
+    )
+    return resp.data
+
+
+def update_backlink_candidate_status(candidate_id: int, status: str) -> Optional[dict]:
+    resp = (
+        _client.table("backlink_candidates")
+        .update({"status": status})
+        .eq("candidate_id", candidate_id)
+        .execute()
+    )
+    return resp.data[0] if resp.data else None
+
+
+# --- published articles (article-pipeline writes these, dashboard reads them) ---
+
+def list_published_articles(website_id: Optional[int] = None) -> list[dict]:
+    query = (
+        _client.table("published_articles")
+        .select("*, keywords(keyword)")
+        .order("published_at", desc=True)
+    )
+    if website_id is not None:
+        query = query.eq("website_id", website_id)
+    return query.execute().data

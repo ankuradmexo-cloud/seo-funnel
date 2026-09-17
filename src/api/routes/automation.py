@@ -22,3 +22,17 @@ def get_automation():
 def set_automation(body: AutomationState):
     db.set_config("automation_enabled", body.enabled)
     return {"enabled": body.enabled}
+
+
+@router.get("/automation/articles")
+def get_article_automation():
+    """Global pause switch for the article pipeline's scheduler, independent
+    of the keyword-shortlisting one above - see websites.py for the matching
+    per-site switch (article_automation_enabled column)."""
+    return {"enabled": db.article_automation_enabled()}
+
+
+@router.post("/automation/articles")
+def set_article_automation(body: AutomationState):
+    db.set_config("article_automation_enabled", body.enabled)
+    return {"enabled": body.enabled}

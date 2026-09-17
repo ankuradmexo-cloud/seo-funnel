@@ -1,0 +1,17 @@
+# Secrets - never commit.
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Run artifacts - regenerated every run, not source.
+logs/*/
+logs/*.log
+output/*.md
+output/*.html
+output/*.json
+
+# macOS
+.DS_Store
