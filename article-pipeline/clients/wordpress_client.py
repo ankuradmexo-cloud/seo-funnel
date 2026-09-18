@@ -26,6 +26,27 @@ def _auth_header(wp_config: dict) -> dict:
     return {"Authorization": f"Basic {token}"}
 
 
+def _post_type(wp_config: dict) -> str:
+    """REST base for this site's actual content type - defaults to the
+    standard "posts", but some sites (e.g. a theme like ReHub that
+    registers its own "blog" custom post type and relabels the admin UI
+    around it) use something else entirely. Publishing to the wrong one
+    can look successful (200 OK, a real database row) while being
+    invisible on the site's actual front end, since the theme's templates
+    only render its own post type. Always read from wp_config, never
+    hardcoded, so this is configurable per site."""
+    return wp_config.get("wp_post_type") or "posts"
+
+
+def _category_taxonomy(wp_config: dict) -> str:
+    """REST base AND post-object field name for this site's category
+    taxonomy - both happen to be the same string for a given taxonomy
+    (e.g. "categories" for the standard one, "blog_category" for a custom
+    post type's own taxonomy), which is why one config value covers both
+    uses below."""
+    return wp_config.get("wp_category_taxonomy") or "categories"
+
+
 def _slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:60] or "article"
 
@@ -133,13 +154,14 @@ def get_or_create_category(wp_config: dict, name: str) -> Optional[int]:
         return None
     base = wp_config["wp_base_url"].rstrip("/")
     headers = _auth_header(wp_config)
+    taxonomy = _category_taxonomy(wp_config)
     try:
-        resp = httpx.get(f"{base}/wp-json/wp/v2/categories", headers=headers, params={"search": name}, timeout=_TIMEOUT)
+        resp = httpx.get(f"{base}/wp-json/wp/v2/{taxonomy}", headers=headers, params={"search": name}, timeout=_TIMEOUT)
         if resp.status_code == 200:
             for cat in resp.json():
                 if cat["name"].strip().lower() == name.strip().lower():
                     return cat["id"]
-        create = httpx.post(f"{base}/wp-json/wp/v2/categories", headers=headers, json={"name": name}, timeout=_TIMEOUT)
+        create = httpx.post(f"{base}/wp-json/wp/v2/{taxonomy}", headers=headers, json={"name": name}, timeout=_TIMEOUT)
         if create.status_code in (200, 201):
             return create.json()["id"]
         return None
@@ -167,11 +189,11 @@ def create_post(
         if featured_media_id:
             body["featured_media"] = featured_media_id
         if category_id:
-            body["categories"] = [category_id]
+            body[_category_taxonomy(wp_config)] = [category_id]
         if author_id:
             body["author"] = author_id
         resp = httpx.post(
-            f"{wp_config['wp_base_url'].rstrip('/')}/wp-json/wp/v2/posts",
+            f"{wp_config['wp_base_url'].rstrip('/')}/wp-json/wp/v2/{_post_type(wp_config)}",
             headers=_auth_header(wp_config),
             json=body,
             timeout=_TIMEOUT,
@@ -195,13 +217,14 @@ def set_seo_meta(wp_config: dict, post_id: int, meta_title: str, meta_descriptio
         return False
     try:
         base = wp_config["wp_base_url"].rstrip("/")
+        post_type = _post_type(wp_config)
         if plugin == "yoast":
             meta = {"_yoast_wpseo_title": meta_title, "_yoast_wpseo_metadesc": meta_description}
         elif plugin == "rankmath":
             meta = {"rank_math_title": meta_title, "rank_math_description": meta_description}
         else:
             resp = httpx.post(
-                f"{base}/wp-json/wp/v2/posts/{post_id}",
+                f"{base}/wp-json/wp/v2/{post_type}/{post_id}",
                 headers=_auth_header(wp_config),
                 json={"excerpt": meta_description},
                 timeout=_TIMEOUT,
@@ -209,7 +232,7 @@ def set_seo_meta(wp_config: dict, post_id: int, meta_title: str, meta_descriptio
             return resp.status_code in (200, 201)
 
         resp = httpx.post(
-            f"{base}/wp-json/wp/v2/posts/{post_id}",
+            f"{base}/wp-json/wp/v2/{post_type}/{post_id}",
             headers=_auth_header(wp_config),
             json={"meta": meta},
             timeout=_TIMEOUT,
@@ -219,7 +242,7 @@ def set_seo_meta(wp_config: dict, post_id: int, meta_title: str, meta_descriptio
         # WordPress silently ignores unregistered meta keys instead of
         # erroring - a 200 doesn't prove the write actually landed, so read
         # the post back and check.
-        check = httpx.get(f"{base}/wp-json/wp/v2/posts/{post_id}", headers=_auth_header(wp_config), timeout=_TIMEOUT)
+        check = httpx.get(f"{base}/wp-json/wp/v2/{post_type}/{post_id}", headers=_auth_header(wp_config), timeout=_TIMEOUT)
         if check.status_code != 200:
             return False
         saved_meta = (check.json() or {}).get("meta") or {}
@@ -236,7 +259,7 @@ def get_post_content(wp_config: dict, wp_post_id: int) -> Optional[str]:
         return None
     try:
         resp = httpx.get(
-            f"{wp_config['wp_base_url'].rstrip('/')}/wp-json/wp/v2/posts/{wp_post_id}?context=edit",
+            f"{wp_config['wp_base_url'].rstrip('/')}/wp-json/wp/v2/{_post_type(wp_config)}/{wp_post_id}?context=edit",
             headers=_auth_header(wp_config),
             timeout=_TIMEOUT,
         )
@@ -257,7 +280,7 @@ def update_post_content(wp_config: dict, wp_post_id: int, new_html_content: str)
         return False
     try:
         resp = httpx.post(
-            f"{wp_config['wp_base_url'].rstrip('/')}/wp-json/wp/v2/posts/{wp_post_id}",
+            f"{wp_config['wp_base_url'].rstrip('/')}/wp-json/wp/v2/{_post_type(wp_config)}/{wp_post_id}",
             headers=_auth_header(wp_config),
             json={"content": new_html_content},
             timeout=_TIMEOUT,

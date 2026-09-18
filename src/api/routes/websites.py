@@ -20,6 +20,8 @@ class WebsiteUpdate(BaseModel):
     articles_per_day: Optional[int] = None
     article_automation_enabled: Optional[bool] = None
     wp_author_ids: Optional[list[int]] = None
+    wp_post_type: Optional[str] = None
+    wp_category_taxonomy: Optional[str] = None
 
 
 @router.get("/websites")

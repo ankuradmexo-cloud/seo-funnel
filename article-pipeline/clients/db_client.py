@@ -50,7 +50,10 @@ def get_website_wp_config(website_id: int) -> Optional[dict]:
         return None
     resp = (
         _client.table("websites")
-        .select("website_id, name, wp_base_url, wp_username, wp_app_password, seo_plugin, wp_author_ids")
+        .select(
+            "website_id, name, wp_base_url, wp_username, wp_app_password, seo_plugin, "
+            "wp_author_ids, wp_post_type, wp_category_taxonomy"
+        )
         .eq("website_id", website_id)
         .execute()
     )

@@ -20,6 +20,8 @@ class Website(BaseModel):
     articles_per_day: int = 2
     article_automation_enabled: bool = True
     wp_author_ids: list[int] = Field(default_factory=list)
+    wp_post_type: str = "posts"
+    wp_category_taxonomy: str = "categories"
 
 
 class Niche(BaseModel):
