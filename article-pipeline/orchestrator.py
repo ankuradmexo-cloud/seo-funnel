@@ -271,6 +271,9 @@ def _search_hero_image_with_fallback(image_search_terms: str, keyword: str) -> O
 
 
 def run_for_keyword(keyword: str, website_id: Optional[int] = None, keyword_id: Optional[int] = None) -> dict:
+    if keyword_id is not None:
+        db_client.claim_keyword(keyword_id)
+
     run_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{_slugify(keyword)}"
     run_dir = LOGS_DIR / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -343,6 +346,8 @@ def run_for_keyword(keyword: str, website_id: Optional[int] = None, keyword_id: 
         }
         (run_dir / "_run_summary.json").write_text(json.dumps(run_summary, indent=2))
         print(f"\nRejected in {elapsed:.0f}s - {deepseek.calls_made} DeepSeek call(s), no article written.")
+        if keyword_id is not None:
+            db_client.release_keyword(keyword_id)
         return run_summary
 
     print("Step 3: Competitor page scraping")
@@ -539,6 +544,12 @@ def run_for_keyword(keyword: str, website_id: Optional[int] = None, keyword_id: 
         run_summary["cost"]["total_cost_usd"], interlinking_candidates, deepseek, log_step,
     )
     run_summary.update(wp_result)
+    # record_published_article() (inside _publish_to_wordpress) already set
+    # 'published' on success - only need to release the claim if it didn't
+    # actually publish, so the keyword stays eligible for a future attempt
+    # instead of being stuck in 'queued'.
+    if keyword_id is not None and wp_result.get("wp_publish_status") != settings.wp_publish_status:
+        db_client.release_keyword(keyword_id)
 
     (run_dir / "_run_summary.json").write_text(json.dumps(run_summary, indent=2))
 

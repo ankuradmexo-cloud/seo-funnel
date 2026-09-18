@@ -72,6 +72,16 @@ def get_published_articles(website_id: int, limit: int = 30) -> list[dict]:
     return [r for r in resp.data if r.get("wp_post_url")]
 
 
+def list_all_published_articles() -> list[dict]:
+    """Every recorded article, across all websites - used by
+    tools/migrate_test_articles.py to find everything that needs migrating
+    off the test site, oldest first (the order they originally published in)."""
+    if _client is None:
+        return []
+    resp = _client.table("published_articles").select("*").order("published_at").execute()
+    return resp.data
+
+
 def record_published_article(
     website_id: int, keyword_id: Optional[int], title: str, slug: str,
     wp_post_id: Optional[int], wp_post_url: Optional[str],
@@ -94,6 +104,15 @@ def record_published_article(
         _client.table("keywords").update(
             {"status": "published", "target_url": wp_post_url}
         ).eq("keyword_id", keyword_id).execute()
+    return resp.data[0] if resp.data else None
+
+
+def update_published_article(article_id: int, fields: dict) -> Optional[dict]:
+    """Used by tools/migrate_test_articles.py to point an already-recorded
+    row at a newly-created real post, replacing the disposable test one."""
+    if _client is None:
+        return None
+    resp = _client.table("published_articles").update(fields).eq("article_id", article_id).execute()
     return resp.data[0] if resp.data else None
 
 
@@ -135,6 +154,29 @@ def articles_published_today(website_id: int) -> int:
         .execute()
     )
     return len(resp.data)
+
+
+def claim_keyword(keyword_id: int) -> None:
+    """Marks a keyword 'queued' the moment a run actually starts on it -
+    without this, two runs (e.g. a manual trigger and the scheduler)
+    started close together can both select the same top-scored shortlisted
+    keyword before either finishes, since status only flipped to
+    'published' at the very end. Measured on a real run: this produced two
+    separate live WordPress posts for the same keyword. 'queued' is an
+    existing, previously-unused step in the keywords status lifecycle
+    (shortlisted -> queued -> published) - this is exactly what it's for."""
+    if _client is None or keyword_id is None:
+        return
+    _client.table("keywords").update({"status": "queued"}).eq("keyword_id", keyword_id).execute()
+
+
+def release_keyword(keyword_id: int) -> None:
+    """Reverts a claimed keyword back to 'shortlisted' if the run didn't
+    end up publishing (e.g. a quality-gate fail) - so it stays eligible for
+    a future attempt instead of being silently stuck in 'queued' forever."""
+    if _client is None or keyword_id is None:
+        return
+    _client.table("keywords").update({"status": "shortlisted"}).eq("keyword_id", keyword_id).execute()
 
 
 def get_shortlisted_keywords_for_articles(website_id: int, limit: int) -> list[dict]:
