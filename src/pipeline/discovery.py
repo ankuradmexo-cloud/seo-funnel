@@ -1,6 +1,5 @@
 import httpx
 
-from src.clients.scrappa_client import ScrappaClient
 from src.clients.seranking_client import SERankingClient
 from src.config import settings
 from src.models.schemas import DiscoveryCandidate
@@ -16,38 +15,16 @@ def _is_transient(exc: Exception) -> bool:
     return isinstance(exc, (httpx.TimeoutException, httpx.TransportError))
 
 
-def _autocomplete_expand(scrappa: ScrappaClient, seed: str, depth: int = 2, breadth: int = 10) -> set[str]:
-    """BFS out from the seed via Scrappa autocomplete. Each call is 1 credit and
-    returns up to 10 keywords, so recursing one extra level multiplies breadth
-    cheaply: depth=2, breadth=10 is up to 11 calls per seed."""
-    seen: set[str] = set()
-    frontier = [seed]
-    for _ in range(depth):
-        next_frontier: list[str] = []
-        for query in frontier:
-            try:
-                suggestions = scrappa.autocomplete(query)[:breadth]
-            except httpx.HTTPError as e:
-                if not _is_transient(e):
-                    raise  # bad key / out of credits - fail loudly
-                continue  # transient 5xx or timeout - skip this branch
-            for s in suggestions:
-                if s not in seen:
-                    seen.add(s)
-                    next_frontier.append(s)
-        frontier = next_frontier
-    seen.discard(seed)
-    return seen
-
-
 def discover_keywords(
-    scrappa: ScrappaClient, seranking: SERankingClient, seed_keyword: str
+    seranking: SERankingClient, seed_keyword: str
 ) -> list[DiscoveryCandidate]:
     """Three measured discovery sources, each with a distinct profile:
 
-    - autocomplete (Scrappa, ~$0.0003/call for up to 10 keywords): ~28-31% of
-      results have real search volume, and it produced the best approval yield
-      of anything tested. The volume driver.
+    - similar (SE Ranking, 10 credits/returned keyword): replaces the old
+      Scrappa autocomplete BFS as the volume driver - semantically similar
+      keywords/synonyms/phrasings from SE Ranking's own keyword database
+      rather than literal Google Autocomplete suggestions (no equivalent
+      exists in SE Ranking's API). A single flat call per seed, not a BFS.
     - questions (SE Ranking, 10 credits/returned keyword): ~93% real-volume hit
       rate - very little noise, but only when given SHORT head-term seeds.
     - related (SE Ranking, 10 credits/returned keyword): ~98% real-volume hit
@@ -60,8 +37,15 @@ def discover_keywords(
     """
     candidates: dict[str, set[str]] = {}
 
-    for kw in _autocomplete_expand(scrappa, seed_keyword):
-        candidates.setdefault(kw, set()).add("autocomplete")
+    if settings.similar_limit_per_seed > 0:
+        try:
+            for item in seranking.similar_keywords(seed_keyword, limit=settings.similar_limit_per_seed):
+                if item.get("keyword"):
+                    candidates.setdefault(item["keyword"], set()).add("similar")
+        except httpx.HTTPError as e:
+            if not _is_transient(e):
+                raise
+            pass  # one source failing shouldn't lose the other two
 
     if settings.questions_limit_per_seed > 0:
         try:

@@ -47,7 +47,7 @@ class SeedGenerationOutput(BaseModel):
 
 class DiscoveryCandidate(BaseModel):
     keyword: str
-    source: list[Literal["autocomplete", "questions", "related"]]
+    source: list[Literal["similar", "questions", "related"]]
 
 
 class DemandMetrics(BaseModel):

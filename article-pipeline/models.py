@@ -22,7 +22,7 @@ class SearchIntent(BaseModel):
     # Judge this from the keyword's own wording FIRST ("near me", "nearby",
     # "in [city]", "open now", "hours", "directions to" are reliable signals
     # on their own) - do not require SERP confirmation. Found by testing:
-    # Scrappa's SERP for this exact keyword came back completely unrelated
+    # The SERP for this exact keyword came back completely unrelated
     # (results about an unrelated organization that happened to share the
     # word "plus") on one run, and a classifier that needed the SERP to
     # agree missed an obviously local-intent keyword because the SERP data

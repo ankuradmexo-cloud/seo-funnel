@@ -1,20 +1,20 @@
 """Per-run API usage accounting.
 
 Credits are accumulated in memory during a run and written once at the end,
-rather than one row per call - a single run makes ~330 Scrappa autocomplete
-requests, and inserting a row per request would add hundreds of DB round trips
-to an already slow pipeline.
+rather than one row per call - a single run makes dozens of SE Ranking
+discovery/SERP requests, and inserting a row per request would add hundreds
+of DB round trips to an already slow pipeline.
 
 Credit costs are provider-specific and not interchangeable:
-  Scrappa      1 credit per request, regardless of how many results come back
   SE Ranking   100 credits flat for keywords/export (any batch size up to 5000)
-               10 credits per RETURNED keyword for questions/related
+               10 credits per RETURNED keyword for questions/related/similar
+               50 credits flat per serp/classic SERP task
   DeepSeek     billed by token, not credits - tracked as calls/tokens instead
 """
 
-SCRAPPA_CREDITS_PER_CALL = 1
 SERANKING_EXPORT_CREDITS = 100
 SERANKING_CREDITS_PER_RETURNED_KEYWORD = 10
+SERANKING_SERP_CREDITS_PER_TASK = 50
 
 
 class UsageTracker:

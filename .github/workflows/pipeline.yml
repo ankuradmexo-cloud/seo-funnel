@@ -38,7 +38,6 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          SCRAPPA_API_KEY: ${{ secrets.SCRAPPA_API_KEY }}
           SERANKING_API_KEY: ${{ secrets.SERANKING_API_KEY }}
           # Pipeline tuning - see src/config.py for what each one costs.
           SEEDS_PER_NICHE: "30"

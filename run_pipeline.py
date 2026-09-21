@@ -30,10 +30,9 @@ def main():
         print("Automation is paused in the dashboard - exiting without running.")
         sys.exit(0)
 
-    # Credits are checked before the first provider call, not lazily. The
-    # cheap provider runs first - a run spends ~330 Scrappa credits on
-    # autocomplete before SE Ranking is touched - so discovering an empty SE
-    # Ranking balance mid-run means that Scrappa spend bought nothing.
+    # Credits are checked before the first provider call, not lazily - SE
+    # Ranking is now the pipeline's only credit-metered provider, so an empty
+    # balance is caught up front instead of mid-run.
     if not args.skip_credit_check:
         pre = balances.preflight()
         pre["checked_at"] = datetime.now(timezone.utc).isoformat()

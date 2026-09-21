@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from clients import db_client
 from clients.backlink_client import get_backlinks
 from clients.deepseek_client import DeepSeekClient
-from clients.scrappa_client import ScrappaClient
+from clients.seranking_client import SERankingClient
 from pipeline.serp_research import research_serp
 
 MIN_COMPETITORS_LINKED = 2  # the actual "gap" threshold - below this, it's just one page's backlink list
@@ -118,8 +118,8 @@ def find_link_gap(
     keyword: str, top_n: int = 5, per_competitor_limit: int = 50,
     min_competitors_linked: int = MIN_COMPETITORS_LINKED,
 ) -> dict:
-    scrappa = ScrappaClient()
-    serp = research_serp(scrappa, keyword, top_n)
+    seranking = SERankingClient()
+    serp = research_serp(seranking, keyword, top_n)
     competing_urls = [r["link"] for r in serp["top_results"][:top_n] if r.get("link")]
 
     # referring_domain -> {"competitors_linked": set(url_to), "domain_inlink_rank": int, "sample_links": [...]}

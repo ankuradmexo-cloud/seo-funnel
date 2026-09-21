@@ -1,5 +1,5 @@
 """Tunes pipeline/length_control.py against drafts already on disk, without
-re-running the pipeline (no SERP/Scrappa/SE Ranking spend, only DeepSeek
+re-running the pipeline (no SERP/SE Ranking spend, only DeepSeek
 condense calls - about $0.02/pass).
 
 Usage:

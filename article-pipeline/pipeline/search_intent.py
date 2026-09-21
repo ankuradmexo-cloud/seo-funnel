@@ -9,7 +9,7 @@ Judges intent from BOTH the keyword's own wording AND the SERP - not SERP
 alone. That used to be SERP-only ("do not guess from the keyword's wording
 alone"), on the reasoning that real ranking data beats guessing. Found by
 testing that this makes the whole classification fragile to bad data:
-Scrappa's SERP for "plus size clothing stores nearby" came back full of
+The SERP for "plus size clothing stores nearby" came back full of
 unrelated results (an organization that happens to share the word "plus")
 on one run, and a SERP-only classifier missed an obviously local-intent
 keyword because the SERP that day was garbage - even though "nearby" in the

@@ -3,7 +3,6 @@ from typing import Optional
 from datetime import datetime, timezone
 
 from src.clients.deepseek_client import DeepSeekClient, BudgetExceeded
-from src.clients.scrappa_client import ScrappaClient
 from src.clients.seranking_client import SERankingClient
 from src.clients import supabase_client as db
 from src.clients.usage import UsageTracker
@@ -86,7 +85,6 @@ def run_for_website(website: Website) -> dict:
     target = settings.max_keywords_per_site_per_day
 
     try:
-        scrappa = ScrappaClient(usage=usage)
         seranking = SERankingClient(usage=usage)
 
         existing = db.get_existing_keywords(website.website_id, niche.niche_id)
@@ -101,14 +99,14 @@ def run_for_website(website: Website) -> dict:
         )
 
         # Stage 2 - discovery expansion across three measured sources
-        # (autocomplete / questions / related - see discovery.py for the
+        # (similar / questions / related - see discovery.py for the
         # per-source cost and hit-rate rationale). Source attribution is kept
         # per keyword so the dashboard and future tuning can see which source
         # actually produced the winners.
         raw_candidates: list[str] = []
         sources_by_keyword: dict[str, set[str]] = {}
         for seed in seeds.seed_keywords:
-            discovered = discover_keywords(scrappa, seranking, seed)
+            discovered = discover_keywords(seranking, seed)
             per_source: dict[str, int] = {}
             for c in discovered:
                 raw_candidates.append(c.keyword)
@@ -243,7 +241,7 @@ def run_for_website(website: Website) -> dict:
                 )
 
                 try:
-                    serp_signal = check_serp(scrappa, candidate)
+                    serp_signal = check_serp(seranking, candidate)
                 except BudgetExceeded:
                     raise
                 except Exception as e:

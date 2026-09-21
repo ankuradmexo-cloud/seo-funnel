@@ -5,7 +5,7 @@ step. Originally a standalone project (`article-intelligence/`); now lives as
 `article-pipeline/` inside the `seo funnel` repo, since it shares that
 project's Supabase database (`website_id`/`keyword_id`, the
 `published_articles` table, the automation pause switches) and API accounts
-(DeepSeek, Scrappa, SE Ranking) directly rather than duplicating them.
+(DeepSeek, SE Ranking) directly rather than duplicating them.
 
 Beyond writing the article, a run can now also (when `--website-id` is
 given and `SUPABASE_URL`/`SUPABASE_KEY` are set - see `config.py`):
@@ -57,7 +57,7 @@ python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 ```
 
-No `.env` needed here for the shared keys (`DEEPSEEK_API_KEY`, `SCRAPPA_API_KEY`,
+No `.env` needed here for the shared keys (`DEEPSEEK_API_KEY`,
 `SERANKING_API_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`) - `config.py`'s
 `load_dotenv()` walks up to `../.env` automatically. Only add a local `.env`
 here for pipeline-only settings (`PEXELS_API_KEY`, `WP_PUBLISH_STATUS`, etc.
@@ -79,8 +79,9 @@ here for pipeline-only settings (`PEXELS_API_KEY`, `WP_PUBLISH_STATUS`, etc.
 
 Each run costs real API credits — DeepSeek for ~20-25 LLM calls (research/QA
 plus one generation per outline section, plus a handful of condense calls for
-any section that overshoots its target), one Scrappa search, one SE Ranking
-batch validation. Reddit search (step 5) is free but best-effort — see below.
+any section that overshoots its target), one SE Ranking SERP task (50 credits)
+plus one SE Ranking batch keyword validation (100 credits flat). Reddit search
+(step 5) is free but best-effort — see below.
 Nothing is spent without an explicit run.
 
 Tuning the condense loop itself without spending a full run:
@@ -127,7 +128,7 @@ file, and that file's producing prompt lives in `pipeline/<same_stage>.py`.
 
 | # | Stage | Module | What it does |
 |---|---|---|---|
-| 1 | SERP research | `pipeline/serp_research.py` | Live top organic results, People Also Ask, related searches (Scrappa) |
+| 1 | SERP research | `pipeline/serp_research.py` | Live top organic results, People Also Ask, related searches (SE Ranking `serp/classic`) |
 | 2 | Competitor page scraping | `pipeline/competitor_scraping.py`, `clients/page_scraper.py` | Fetches each competitor URL directly; extracts main text + H1-H3 headings |
 | 3 | Competitor research | `pipeline/competitor_research.py` | Infers content type and angle per competitor from full content (or snippet if scraping failed) |
 | 4 | Content gap analysis | `pipeline/content_gap_analysis.py` | What's underserved; one differentiation angle |
@@ -247,8 +248,9 @@ separately.
 
 ## Known v1 limitations
 
-- **Competitor page fetching is best-effort.** Scrappa has no full-page-content
-  endpoint, so `clients/page_scraper.py` fetches each competitor URL directly.
+- **Competitor page fetching is best-effort.** The SERP API has no
+  full-page-content endpoint, so `clients/page_scraper.py` fetches each
+  competitor URL directly.
   The raw HTML is saved to `logs/<run_id>/html/` (one file per successful
   fetch) so exactly what was fetched can be inspected or reprocessed without
   hitting the network again; main text (via `trafilatura`) and H1-H3 headings
@@ -285,7 +287,7 @@ separately.
 ```
 config.py           Settings from .env
 models.py            Every stage's Pydantic schema
-clients/             API wrappers: DeepSeek, Scrappa, SE Ranking, page_scraper, reddit_client
+clients/             API wrappers: DeepSeek, SE Ranking, page_scraper, reddit_client
 pipeline/            One module per stage, independently promptable
 pipeline/length_control.py   Word counting, digest-building, and the condense loop - not a "stage", used by article_writer.py
 tools/tune_condense.py       Re-runs length_control.py against drafts already on disk, no full-pipeline spend

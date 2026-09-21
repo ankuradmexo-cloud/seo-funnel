@@ -6,7 +6,6 @@ load_dotenv()
 
 class Settings:
     deepseek_api_key: str = os.environ["DEEPSEEK_API_KEY"]
-    scrappa_api_key: str = os.environ["SCRAPPA_API_KEY"]
     seranking_api_key: str = os.environ["SERANKING_API_KEY"]
     supabase_url: str = os.environ["SUPABASE_URL"]
     supabase_key: str = os.environ["SUPABASE_KEY"]
@@ -34,9 +33,16 @@ class Settings:
     max_difficulty_to_judge: int = int(os.environ.get("MAX_DIFFICULTY_TO_JUDGE", 40))
 
     # Seeds per niche. Cost scales roughly linearly with this: each seed costs
-    # ~11 Scrappa autocomplete calls plus questions_limit_per_seed x 10 SE
-    # Ranking credits. Demand validation stays one flat call regardless.
+    # (similar_limit_per_seed + questions_limit_per_seed) x 10 SE Ranking
+    # credits. Demand validation stays one flat call regardless.
     seeds_per_niche: int = int(os.environ.get("SEEDS_PER_NICHE", 30))
+
+    # Replaces the old Scrappa autocomplete BFS as the discovery volume
+    # driver - SE Ranking's semantically-similar-keywords endpoint, a single
+    # flat call per seed instead of a multi-level BFS (no yield data yet
+    # against the ~28-31% real-volume hit rate autocomplete measured -
+    # revisit this default once a real batch has run through the judge).
+    similar_limit_per_seed: int = int(os.environ.get("SIMILAR_LIMIT_PER_SEED", 30))
 
     questions_limit_per_seed: int = int(os.environ.get("QUESTIONS_LIMIT_PER_SEED", 15))
     # `related` defaults OFF: ~98% real-volume hit rate, but it returns broad

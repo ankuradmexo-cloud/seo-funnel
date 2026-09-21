@@ -8,7 +8,6 @@ load_dotenv()
 
 class Settings:
     deepseek_api_key: str = os.environ["DEEPSEEK_API_KEY"]
-    scrappa_api_key: str = os.environ["SCRAPPA_API_KEY"]
     seranking_api_key: str = os.environ["SERANKING_API_KEY"]
 
     # How many top organic results to treat as competitors. Raised from 10 to
@@ -16,8 +15,8 @@ class Settings:
     # App Store/Play Store listings and forum threads that get excluded from
     # the structural targets (see competitor_scraping.py's content_type
     # filtering), so page 1 alone left as few as 3 usable competitors on one
-    # run. serp_research.py now pages through Scrappa to collect this many
-    # raw results before that filtering happens.
+    # run. SE Ranking's serp/classic task returns up to 100 organic results
+    # in one call, well above this, so no paging is needed to reach it.
     competitor_count: int = int(os.environ.get("COMPETITOR_COUNT", 20))
 
     # Candidates generated PER OUTLINE SECTION (keyword_expansion.py), not a

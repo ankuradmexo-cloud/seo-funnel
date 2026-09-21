@@ -1,6 +1,6 @@
 """Fetches and extracts the main readable content, structure, and metadata
-from a competitor URL. Scrappa's SERP API returns titles and snippets only -
-it has no full-page-content endpoint - so this does a direct HTTP fetch plus
+from a competitor URL. The SERP API returns titles and snippets only - it
+has no full-page-content endpoint - so this does a direct HTTP fetch plus
 extraction.
 
 Best-effort by design: many pages block non-browser requests, render their
