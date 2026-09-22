@@ -22,9 +22,9 @@ export default function OffPagePage() {
     <>
       <h1>Off-Page SEO</h1>
       <p className="sub">
-        Research + drafted outreach for backlinks, directories, guest posts, and social/forum
-        threads. Nothing here sends an email or posts anywhere on its own - every draft is for
-        your team to review and send/post themselves.
+        Research + drafted outreach for backlinks, directories, and guest posts. Nothing here
+        sends an email or posts anywhere on its own - every draft is for your team to review and
+        send/post themselves.
       </p>
       {err && <div className="err">{err}</div>}
 

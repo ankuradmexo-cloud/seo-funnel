@@ -4,6 +4,12 @@ import { api, OffpageChannel, OffpageJob, OffpageOpportunity } from "@/lib/api";
 
 const OPPORTUNITY_STATUSES: OffpageOpportunity["status"][] = ["new", "contacted", "replied", "won", "rejected"];
 
+// Social/forum is intentionally left out of this list - Reddit's Data
+// Access Request for this app was rejected, and there's no other real
+// data source wired up (Quora has no public search API), so the channel
+// has no way to find anything right now. The backend (tools/offpage_research.py,
+// the /offpage/social route) is untouched - re-add an entry here if a real
+// source becomes available later.
 const CHANNELS: { key: OffpageChannel; label: string; triggerLabel: string; blurb: string }[] = [
   {
     key: "directory",
@@ -16,12 +22,6 @@ const CHANNELS: { key: OffpageChannel; label: string; triggerLabel: string; blur
     label: "Guest posts",
     triggerLabel: "Find guest post opportunities",
     blurb: "Sites accepting outside contributions in this site's categories, with a drafted pitch email referencing a real published article.",
-  },
-  {
-    key: "social",
-    label: "Social / forum",
-    triggerLabel: "Find social/forum threads",
-    blurb: "Active Reddit threads where a real published article would genuinely help - drafted reply only, never posted automatically.",
   },
 ];
 
