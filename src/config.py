@@ -5,10 +5,14 @@ load_dotenv()
 
 
 class Settings:
-    deepseek_api_key: str = os.environ["DEEPSEEK_API_KEY"]
-    seranking_api_key: str = os.environ["SERANKING_API_KEY"]
-    supabase_url: str = os.environ["SUPABASE_URL"]
-    supabase_key: str = os.environ["SUPABASE_KEY"]
+    # .strip() on every secret - a Render/GitHub env var pasted with a
+    # trailing newline is otherwise invisible until it breaks an HTTP header
+    # ("Illegal header value b'Token ...\n'") deep inside a client call, real
+    # incident against SERANKING_API_KEY.
+    deepseek_api_key: str = os.environ["DEEPSEEK_API_KEY"].strip()
+    seranking_api_key: str = os.environ["SERANKING_API_KEY"].strip()
+    supabase_url: str = os.environ["SUPABASE_URL"].strip()
+    supabase_key: str = os.environ["SUPABASE_KEY"].strip()
 
     # DeepSeek calls per run: 1 seed generation + up to
     # max_candidates_to_judge_per_run SEO Judge calls. LLM bulk keyword

@@ -6,9 +6,20 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _clean(value: Optional[str]) -> Optional[str]:
+    """Same trailing-whitespace guard as the required secrets below, applied
+    to the optional ones too - a pasted Render/GitHub env var can carry a
+    stray newline regardless of whether the setting itself is optional."""
+    return value.strip() if value is not None else None
+
+
 class Settings:
-    deepseek_api_key: str = os.environ["DEEPSEEK_API_KEY"]
-    seranking_api_key: str = os.environ["SERANKING_API_KEY"]
+    # .strip() on every secret - a Render/GitHub env var pasted with a
+    # trailing newline is otherwise invisible until it breaks an HTTP header
+    # ("Illegal header value b'Token ...\n'") deep inside a client call, real
+    # incident against SERANKING_API_KEY.
+    deepseek_api_key: str = os.environ["DEEPSEEK_API_KEY"].strip()
+    seranking_api_key: str = os.environ["SERANKING_API_KEY"].strip()
 
     # How many top organic results to treat as competitors. Raised from 10 to
     # 20 - a single SERP page (~9-10 organic results) routinely has several
@@ -35,15 +46,15 @@ class Settings:
     # name, client_secret is labeled "secret". This uses the app-only
     # client_credentials grant (no Reddit username/password needed) which
     # is free for this volume of use.
-    reddit_client_id: Optional[str] = os.environ.get("REDDIT_CLIENT_ID")
-    reddit_client_secret: Optional[str] = os.environ.get("REDDIT_CLIENT_SECRET")
+    reddit_client_id: Optional[str] = _clean(os.environ.get("REDDIT_CLIENT_ID"))
+    reddit_client_secret: Optional[str] = _clean(os.environ.get("REDDIT_CLIENT_SECRET"))
     reddit_user_agent: str = os.environ.get(
         "REDDIT_USER_AGENT", "article-intelligence-research/0.2 (local SEO content research tool)"
     )
 
     # Optional - pipeline/hero_image.py degrades to no image (not a crash)
     # when unset, same pattern as the Reddit credentials above.
-    pexels_api_key: Optional[str] = os.environ.get("PEXELS_API_KEY")
+    pexels_api_key: Optional[str] = _clean(os.environ.get("PEXELS_API_KEY"))
 
     # Optional - shares the same Supabase project as the rest of this repo
     # (this file lives at seo-funnel/article-pipeline/, load_dotenv() with no
@@ -51,8 +62,8 @@ class Settings:
     # is purely local: no interlinking, no WordPress publish, no automation -
     # everything else in the pipeline works exactly as before, same
     # degrade-gracefully pattern as Reddit/Pexels above.
-    supabase_url: Optional[str] = os.environ.get("SUPABASE_URL")
-    supabase_key: Optional[str] = os.environ.get("SUPABASE_KEY")
+    supabase_url: Optional[str] = _clean(os.environ.get("SUPABASE_URL"))
+    supabase_key: Optional[str] = _clean(os.environ.get("SUPABASE_KEY"))
 
     # 'publish' or 'draft'. Everything ships live by default per the current
     # decision - flip to 'draft' in .env to require manual review in WP
