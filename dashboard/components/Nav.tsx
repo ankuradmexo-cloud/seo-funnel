@@ -6,6 +6,7 @@ const LINKS = [
   { href: "/", label: "Overview" },
   { href: "/keywords", label: "Keywords" },
   { href: "/articles", label: "Articles" },
+  { href: "/offpage", label: "Off-Page SEO" },
   { href: "/runs", label: "Runs" },
   { href: "/niches", label: "Niches" },
   { href: "/usage", label: "API usage" },

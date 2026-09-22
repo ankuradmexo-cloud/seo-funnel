@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { api, BacklinkCandidate, BacklinkGapJob } from "@/lib/api";
 
 const CANDIDATE_STATUSES: BacklinkCandidate["status"][] = ["new", "contacted", "replied", "linked", "rejected"];
@@ -12,6 +12,8 @@ export default function BacklinkCandidatesPanel({ keywordId }: { keywordId: numb
   const [candidates, setCandidates] = useState<BacklinkCandidate[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [drafting, setDrafting] = useState<number | null>(null);
+  const [openDraft, setOpenDraft] = useState<number | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -56,6 +58,20 @@ export default function BacklinkCandidatesPanel({ keywordId }: { keywordId: numb
     }
   }
 
+  async function draftOutreach(candidateId: number) {
+    setDrafting(candidateId);
+    setErr(null);
+    try {
+      const updated = await api.draftBacklinkOutreach(candidateId);
+      setCandidates((rows) => rows.map((r) => (r.candidate_id === candidateId ? updated : r)));
+      setOpenDraft(candidateId);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setDrafting(null);
+    }
+  }
+
   return (
     <>
       <h2>Backlink candidates</h2>
@@ -78,27 +94,60 @@ export default function BacklinkCandidatesPanel({ keywordId }: { keywordId: numb
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Domain</th><th>Rank</th><th>Links to</th><th>Sample</th><th>Status</th></tr>
+              <tr><th>Domain</th><th>Rank</th><th>Links to</th><th>Sample</th><th>Draft</th><th>Status</th></tr>
             </thead>
             <tbody>
               {candidates.map((c) => (
-                <tr key={c.candidate_id}>
-                  <td><a href={`https://${c.referring_domain}`} target="_blank" rel="noreferrer">{c.referring_domain}</a></td>
-                  <td>{c.domain_inlink_rank ?? "—"}</td>
-                  <td>{c.competitors_linked_count ?? "—"}</td>
-                  <td className="muted" style={{ maxWidth: 260 }}>
-                    {c.sample_links[0] && (
-                      <a href={c.sample_links[0].from_page} target="_blank" rel="noreferrer" title={c.sample_links[0].anchor ?? ""}>
-                        {c.sample_links[0].from_page_title || c.sample_links[0].from_page}
-                      </a>
-                    )}
-                  </td>
-                  <td>
-                    <select value={c.status} onChange={(e) => setStatus(c.candidate_id, e.target.value as BacklinkCandidate["status"])}>
-                      {CANDIDATE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </td>
-                </tr>
+                <Fragment key={c.candidate_id}>
+                  <tr>
+                    <td><a href={`https://${c.referring_domain}`} target="_blank" rel="noreferrer">{c.referring_domain}</a></td>
+                    <td>{c.domain_inlink_rank ?? "—"}</td>
+                    <td>{c.competitors_linked_count ?? "—"}</td>
+                    <td className="muted" style={{ maxWidth: 260 }}>
+                      {c.sample_links[0] && (
+                        <a href={c.sample_links[0].from_page} target="_blank" rel="noreferrer" title={c.sample_links[0].anchor ?? ""}>
+                          {c.sample_links[0].from_page_title || c.sample_links[0].from_page}
+                        </a>
+                      )}
+                    </td>
+                    <td>
+                      {c.outreach_draft ? (
+                        <button onClick={() => setOpenDraft(openDraft === c.candidate_id ? null : c.candidate_id)}>
+                          {openDraft === c.candidate_id ? "Hide" : "View draft"}
+                        </button>
+                      ) : (
+                        <button onClick={() => draftOutreach(c.candidate_id)} disabled={drafting === c.candidate_id}>
+                          {drafting === c.candidate_id ? "Drafting…" : "Draft outreach"}
+                        </button>
+                      )}
+                    </td>
+                    <td>
+                      <select value={c.status} onChange={(e) => setStatus(c.candidate_id, e.target.value as BacklinkCandidate["status"])}>
+                        {CANDIDATE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </td>
+                  </tr>
+                  {openDraft === c.candidate_id && c.outreach_draft && (
+                    <tr>
+                      <td colSpan={6}>
+                        <div className="spread">
+                          <strong>Draft to {c.referring_domain}</strong>
+                          <button
+                            onClick={() => navigator.clipboard?.writeText(c.outreach_draft || "").catch(() => {})}
+                          >
+                            Copy
+                          </button>
+                        </div>
+                        <textarea
+                          readOnly
+                          value={c.outreach_draft}
+                          rows={6}
+                          style={{ width: "100%", marginTop: 8, fontFamily: "inherit" }}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>

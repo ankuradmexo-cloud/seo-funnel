@@ -76,7 +76,25 @@ export type BacklinkCandidate = {
   referring_domain: string; domain_inlink_rank: number | null;
   competitors_linked_count: number | null;
   sample_links: BacklinkSampleLink[];
+  outreach_draft: string | null;
   status: "new" | "contacted" | "replied" | "linked" | "rejected";
+  found_at: string;
+};
+
+export type OffpageChannel = "directory" | "guest_post" | "social";
+
+export type OffpageJob = {
+  job_id: number; website_id: number; channel: OffpageChannel;
+  status: "running" | "success" | "failed";
+  error_message: string | null;
+  started_at: string; finished_at: string | null;
+};
+
+export type OffpageOpportunity = {
+  opportunity_id: number; job_id: number; website_id: number; channel: OffpageChannel;
+  target_url: string | null; target_domain: string | null; title: string | null;
+  signal_summary: string | null; contact_info: string | null; outreach_draft: string | null;
+  status: "new" | "contacted" | "replied" | "won" | "rejected";
   found_at: string;
 };
 
@@ -163,6 +181,15 @@ export const api = {
     req<BacklinkCandidate[]>(`/keywords/${keywordId}/backlink-candidates`),
   setBacklinkCandidateStatus: (candidateId: number, status: BacklinkCandidate["status"]) =>
     req<BacklinkCandidate>(`/backlink-candidates/${candidateId}`, { method: "PATCH", body: JSON.stringify({ status }) }),
+  draftBacklinkOutreach: (candidateId: number) =>
+    req<BacklinkCandidate>(`/backlink-candidates/${candidateId}/draft-outreach`, { method: "POST" }),
   articles: (websiteId?: number) =>
     req<PublishedArticle[]>(`/articles${websiteId ? `?website_id=${websiteId}` : ""}`),
+  triggerOffpageResearch: (websiteId: number, channel: OffpageChannel) =>
+    req<{ job_id: number; status: string }>(`/websites/${websiteId}/offpage/${channel}`, { method: "POST" }),
+  getOffpageJob: (jobId: number) => req<OffpageJob>(`/offpage-jobs/${jobId}`),
+  offpageOpportunities: (websiteId: number, channel: OffpageChannel) =>
+    req<OffpageOpportunity[]>(`/websites/${websiteId}/offpage-opportunities?channel=${channel}`),
+  setOffpageOpportunityStatus: (opportunityId: number, status: OffpageOpportunity["status"]) =>
+    req<OffpageOpportunity>(`/offpage-opportunities/${opportunityId}`, { method: "PATCH", body: JSON.stringify({ status }) }),
 };

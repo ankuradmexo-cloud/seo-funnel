@@ -231,3 +231,46 @@ def record_backlink_candidates(
         for c in candidates
     ]
     _client.table("backlink_candidates").insert(rows).execute()
+
+
+def get_backlink_candidate(candidate_id: int) -> Optional[dict]:
+    if _client is None:
+        return None
+    resp = _client.table("backlink_candidates").select("*").eq("candidate_id", candidate_id).execute()
+    return resp.data[0] if resp.data else None
+
+
+def record_backlink_outreach_draft(candidate_id: int, draft: str) -> None:
+    if _client is None:
+        return
+    _client.table("backlink_candidates").update({"outreach_draft": draft}).eq("candidate_id", candidate_id).execute()
+
+
+# --- off-page outreach: directories, guest posts, social/forum (tools/offpage_research.py) ---
+# Same job/opportunity tracking pattern as backlink_gap_jobs/backlink_candidates
+# above, generalized across the three channels since their signal shape
+# differs too much to reuse that table directly (see migration_offpage_outreach.sql).
+
+def finish_offpage_job(job_id: int, status: str, error_message: Optional[str] = None) -> None:
+    if _client is None:
+        return
+    from datetime import datetime, timezone
+    _client.table("outreach_jobs").update({
+        "status": status, "error_message": error_message,
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+    }).eq("job_id", job_id).execute()
+
+
+def record_offpage_opportunities(job_id: int, website_id: int, channel: str, opportunities: list[dict]) -> None:
+    if _client is None or not opportunities:
+        return
+    rows = [
+        {
+            "job_id": job_id, "website_id": website_id, "channel": channel,
+            "target_url": o.get("target_url"), "target_domain": o.get("target_domain"),
+            "title": o.get("title"), "signal_summary": o.get("signal_summary"),
+            "contact_info": o.get("contact_info"), "outreach_draft": o.get("outreach_draft"),
+        }
+        for o in opportunities
+    ]
+    _client.table("outreach_opportunities").insert(rows).execute()

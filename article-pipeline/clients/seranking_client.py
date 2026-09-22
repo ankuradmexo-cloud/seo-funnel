@@ -1,4 +1,5 @@
 import time
+from typing import Optional
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -82,14 +83,35 @@ class SERankingClient:
             time.sleep(interval)
             elapsed += interval
 
-    def serp_search(self, keyword: str, device: str = "desktop", language_code: str = "en") -> dict:
+    def serp_search(
+        self, keyword: str, device: str = "desktop", language_code: str = "en", max_attempts: int = 5,
+    ) -> dict:
         """Replaces Scrappa's google_search - same output shape research_serp.py
         expects (top_results/people_also_ask/related_searches/total_results),
-        so callers don't need to change beyond swapping the client."""
+        so callers don't need to change beyond swapping the client.
+
+        Retries with a FRESH task submission on timeout, not more polling of
+        the same task - measured directly: the identical query
+        "AI tools submit your site directory" got stuck in "processing"
+        indefinitely on one submission and completed normally in under 90s
+        on the next, so the stuck state belongs to that one task, not the
+        query. Each attempt uses a shorter 90s cap so 5 attempts stay
+        bounded (~7.5min worst case); raised from 3 after a real run showed
+        ~45% of individual tasks stuck on a bad day, making 3 consecutive
+        failures non-negligible."""
         self.calls_made += 1
-        task_id = self._submit_serp_task(keyword, device, language_code)
-        result = self._poll_serp_task(task_id)
-        self.credits_used += SERANKING_SERP_CREDITS_PER_TASK
+        last_error: Optional[Exception] = None
+        result = None
+        for _ in range(max_attempts):
+            task_id = self._submit_serp_task(keyword, device, language_code)
+            self.credits_used += SERANKING_SERP_CREDITS_PER_TASK  # billed on submission regardless of outcome
+            try:
+                result = self._poll_serp_task(task_id, max_wait=90)
+                break
+            except TimeoutError as e:
+                last_error = e
+        if result is None:
+            raise last_error
         items = result.get("items") or []
         organic = [i for i in items if i.get("type") == "organic"]
         paa = [

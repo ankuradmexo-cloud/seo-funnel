@@ -86,3 +86,23 @@ def update_backlink_candidate(candidate_id: int, body: CandidateStatusUpdate):
     if row is None:
         raise HTTPException(status_code=404, detail="Candidate not found")
     return row
+
+
+@router.post("/backlink-candidates/{candidate_id}/draft-outreach")
+def draft_backlink_outreach(candidate_id: int):
+    """Drafts an outreach email for one candidate - tools/backlink_outreach_draft.py
+    does the work (DeepSeek call, no real credits to speak of), fast enough
+    to run synchronously rather than as a polled background job."""
+    if not ARTICLE_PIPELINE_PYTHON.exists():
+        raise HTTPException(status_code=500, detail="article-pipeline venv not found on this server")
+    result = subprocess.run(
+        [str(ARTICLE_PIPELINE_PYTHON), "tools/backlink_outreach_draft.py", str(candidate_id)],
+        cwd=str(ARTICLE_PIPELINE_DIR),
+        capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode != 0:
+        raise HTTPException(status_code=500, detail=result.stderr[-2000:] or "draft generation failed")
+    row = db.get_backlink_candidate(candidate_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return row

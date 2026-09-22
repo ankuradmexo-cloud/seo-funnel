@@ -546,6 +546,11 @@ def update_backlink_candidate_status(candidate_id: int, status: str) -> Optional
     return resp.data[0] if resp.data else None
 
 
+def get_backlink_candidate(candidate_id: int) -> Optional[dict]:
+    resp = _client.table("backlink_candidates").select("*").eq("candidate_id", candidate_id).execute()
+    return resp.data[0] if resp.data else None
+
+
 # --- published articles (article-pipeline writes these, dashboard reads them) ---
 
 def list_published_articles(website_id: Optional[int] = None) -> list[dict]:
@@ -557,3 +562,42 @@ def list_published_articles(website_id: Optional[int] = None) -> list[dict]:
     if website_id is not None:
         query = query.eq("website_id", website_id)
     return query.execute().data
+
+
+# --- off-page outreach: directories, guest posts, social/forum
+# (dashboard-triggered, article-pipeline/tools/offpage_research.py does the work) ---
+
+def start_offpage_job(website_id: int, channel: str) -> dict:
+    resp = (
+        _client.table("outreach_jobs")
+        .insert({"website_id": website_id, "channel": channel, "status": "running"})
+        .execute()
+    )
+    return resp.data[0]
+
+
+def get_offpage_job(job_id: int) -> Optional[dict]:
+    resp = _client.table("outreach_jobs").select("*").eq("job_id", job_id).execute()
+    return resp.data[0] if resp.data else None
+
+
+def list_offpage_opportunities(website_id: int, channel: Optional[str] = None) -> list[dict]:
+    query = (
+        _client.table("outreach_opportunities")
+        .select("*")
+        .eq("website_id", website_id)
+        .order("found_at", desc=True)
+    )
+    if channel is not None:
+        query = query.eq("channel", channel)
+    return query.execute().data
+
+
+def update_offpage_opportunity_status(opportunity_id: int, status: str) -> Optional[dict]:
+    resp = (
+        _client.table("outreach_opportunities")
+        .update({"status": status})
+        .eq("opportunity_id", opportunity_id)
+        .execute()
+    )
+    return resp.data[0] if resp.data else None

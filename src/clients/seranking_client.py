@@ -123,14 +123,35 @@ class SERankingClient:
             time.sleep(interval)
             elapsed += interval
 
-    def serp_search(self, keyword: str, device: str = "desktop", language_code: str = "en") -> dict:
+    def serp_search(
+        self, keyword: str, device: str = "desktop", language_code: str = "en", max_attempts: int = 5,
+    ) -> dict:
         """Replaces Scrappa's google_search - returns the same
         organic_results/search_information shape so check_serp() in
-        serp_validation.py doesn't need to change beyond the client swap."""
-        task_id = self._submit_serp_task(keyword, device, language_code)
-        result = self._poll_serp_task(task_id)
-        if self._usage:
-            self._usage.record("seranking", "serp/classic/tasks", credits=SERANKING_SERP_CREDITS_PER_TASK)
+        serp_validation.py doesn't need to change beyond the client swap.
+
+        Retries with a FRESH task submission on timeout, not more polling of
+        the same task - measured directly: the identical query
+        "AI tools submit your site directory" got stuck in "processing"
+        indefinitely on one submission and completed normally in under 90s
+        on the next, so the stuck state belongs to that one task, not the
+        query. Each attempt uses a shorter 90s cap so 5 attempts stay
+        bounded (~7.5min worst case); raised from 3 after a real run showed
+        ~45% of individual tasks stuck on a bad day, making 3 consecutive
+        failures non-negligible."""
+        last_error: Optional[Exception] = None
+        result = None
+        for _ in range(max_attempts):
+            task_id = self._submit_serp_task(keyword, device, language_code)
+            if self._usage:
+                self._usage.record("seranking", "serp/classic/tasks", credits=SERANKING_SERP_CREDITS_PER_TASK)
+            try:
+                result = self._poll_serp_task(task_id, max_wait=90)
+                break
+            except TimeoutError as e:
+                last_error = e
+        if result is None:
+            raise last_error
         items = result.get("items") or []
         organic = [i for i in items if i.get("type") == "organic"]
         return {

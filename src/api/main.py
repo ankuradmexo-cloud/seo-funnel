@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routes import (
-    agent_calls, articles, automation, backlinks, credits, keywords, niches, overview, runs,
+    agent_calls, articles, automation, backlinks, credits, keywords, niches, offpage, overview, runs,
     usage, websites,
 )
 
@@ -35,6 +35,7 @@ app.include_router(usage.router, prefix="/api")
 app.include_router(credits.router, prefix="/api")
 app.include_router(backlinks.router, prefix="/api")
 app.include_router(articles.router, prefix="/api")
+app.include_router(offpage.router, prefix="/api")
 
 
 @app.get("/health")
