@@ -25,6 +25,7 @@ from clients import db_client
 from clients.deepseek_client import DeepSeekClient
 from clients.reddit_client import search_reddit
 from clients.seranking_client import SERankingClient
+from config import settings
 
 MAX_QUERIES_PER_RUN = 4
 MAX_RESULTS_PER_QUERY = 10
@@ -60,18 +61,33 @@ class _DirectoryFilterResult(BaseModel):
     entries: list[Entry]
 
 
-_DIRECTORY_SYSTEM_PROMPT = """You are screening SERP results to find real business/niche \
-directories - sites where a business can submit itself for a listing (review directories, \
-citation sites, curated resource lists) - as opposed to unrelated content that merely ranks for \
-a "submit your site"-style query.
+_DIRECTORY_SYSTEM_PROMPT = """You are screening SERP results to find real directories our site can \
+submit ITSELF to for a listing - as opposed to unrelated content, or a directory meant for a \
+different KIND of submission than what we are.
+
+Our site is a content/media/review website - it publishes articles, guides, and reviews. It is \
+NOT a SaaS product, an app, a tool, or a business with a physical location. This distinction is \
+the main thing to filter on: many "submit your AI tool" / "submit your app" style directories \
+(startup/tool directories like a Product Hunt-style listing, an app store, a SaaS directory) \
+exist for people submitting an actual PRODUCT to be listed and reviewed - our site would not \
+qualify there even if the category name matches, because we're the one writing reviews, not a \
+product to be reviewed. Set is_genuine_directory false for any directory that expects a product/\
+tool/app/business submission rather than a website/blog/publication submission.
+
+Genuine directories for our kind of site look like: web directories, blog directories, content/\
+media directories, review-site directories, niche resource/link lists that accept a website URL \
+plus a description - the kind of listing a publication or blog would submit itself to, not a \
+product would.
 
 For each URL given, with its title and snippet: set is_genuine_directory true only if it's \
-plausibly a real directory/listing site accepting external submissions in this niche, false for \
-anything else (a blog post about directories, an unrelated article, a competitor's own site).
+plausibly a real directory/listing site that would accept a CONTENT WEBSITE like ours, false for \
+anything else (a blog post about directories, an unrelated article, a competitor's own site, or a \
+directory meant for products/apps/businesses rather than websites).
 
 For each genuine directory, write a listing_blurb: a short (1-2 sentence), factual description of \
-OUR site suitable for submitting as a directory listing - using the site name and category given. \
-Leave listing_blurb as an empty string for anything not genuine.
+OUR site suitable for submitting as a directory listing - using the site name and category given, \
+and describing it as the review/content website it is. Leave listing_blurb as an empty string for \
+anything not genuine.
 
 Return JSON matching the required schema only, same order as given."""
 
@@ -103,7 +119,8 @@ def research_directories(website_id: int, seranking: SERankingClient, deepseek: 
         for i, r in enumerate(results)
     )
     user_prompt = (
-        f"Our site: {site_name}, categories: {', '.join(categories)}\n\nCandidate URLs:\n{listing}"
+        f"Our site: {site_name}, a content/review website covering: {', '.join(categories)}\n\n"
+        f"Candidate URLs:\n{listing}"
     )
     filtered = deepseek.structured_call(
         _DIRECTORY_SYSTEM_PROMPT, user_prompt, _DirectoryFilterResult, label="offpage_directory_filter",
@@ -233,6 +250,17 @@ posted automatically - written for a human to review and post themselves."""
 
 
 def research_social(website_id: int, deepseek: DeepSeekClient) -> list[dict]:
+    if not settings.reddit_client_id or not settings.reddit_client_secret:
+        # search_reddit() itself degrades silently to [] (the right call for
+        # the article pipeline, where a missing Reddit key shouldn't fail a
+        # whole article run) - but a dashboard-triggered job that "succeeds"
+        # with 0 results and no explanation looks identical to a real "no
+        # threads found," which is misleading. Fail loudly here instead so
+        # the job's error_message tells the real story.
+        raise RuntimeError(
+            "Reddit API credentials not configured (REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET) - "
+            "this channel can't search until they're set."
+        )
     categories = db_client.get_website_categories(website_id)
     published = db_client.get_published_articles(website_id, limit=5)
     if not categories or not published:
