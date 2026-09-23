@@ -11,7 +11,7 @@ from src.models.schemas import Website
 from src.pipeline.niche_discovery import discover_niches
 from src.pipeline.seed_generation import generate_seeds
 from src.pipeline.discovery import discover_keywords
-from src.pipeline.normalize import normalize_keyword, exact_dedup
+from src.pipeline.normalize import normalize_keyword, dedup_key, exact_dedup
 from src.pipeline.demand_validation import validate_demand
 from src.pipeline.relevance_filter import filter_relevant
 from src.pipeline.serp_validation import check_serp
@@ -88,7 +88,7 @@ def run_for_website(website: Website) -> dict:
         seranking = SERankingClient(usage=usage)
 
         existing = db.get_existing_keywords(website.website_id, niche.niche_id)
-        existing_normalized = {normalize_keyword(k) for k in existing}
+        existing_normalized = {dedup_key(k) for k in existing}
 
         # Stage 1 - seed generation, scoped to this one niche
         seeds = generate_seeds(deepseek, website.category, niche.name)
