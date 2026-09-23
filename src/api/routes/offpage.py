@@ -20,7 +20,7 @@ router = APIRouter(tags=["offpage"])
 ARTICLE_PIPELINE_DIR = Path(__file__).resolve().parents[3] / "article-pipeline"
 ARTICLE_PIPELINE_PYTHON = ARTICLE_PIPELINE_DIR / ".venv" / "bin" / "python"
 
-Channel = Literal["directory", "guest_post", "social"]
+Channel = Literal["directory", "resource_page", "broken_link", "social"]
 
 
 class OpportunityStatusUpdate(BaseModel):

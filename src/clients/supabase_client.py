@@ -306,6 +306,14 @@ def set_config(key: str, value) -> None:
     ).execute()
 
 
+def delete_config(key: str) -> None:
+    """system_config.value is NOT NULL, so "clear this override" has to
+    remove the row rather than upsert a null value - used by the
+    Settings-page SE Ranking key clear (src/api/routes/settings.py) to fall
+    back to the env var again."""
+    _client.table("system_config").delete().eq("key", key).execute()
+
+
 def automation_enabled() -> bool:
     return bool(get_config("automation_enabled", True))
 

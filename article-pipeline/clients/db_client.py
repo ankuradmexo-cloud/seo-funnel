@@ -26,6 +26,18 @@ def configured() -> bool:
     return _client is not None
 
 
+def get_config(key: str, default=None):
+    """Reads seo-funnel's own system_config key-value table (same one
+    src/clients/supabase_client.py's get_config/set_config use) - this is
+    how a dashboard Settings-page override (e.g. seranking_api_key, see
+    src/api/routes/settings.py) reaches this separate pipeline without a
+    dedicated sync step, since both talk to the same Supabase project."""
+    if _client is None:
+        return default
+    resp = _client.table("system_config").select("value").eq("key", key).execute()
+    return resp.data[0]["value"] if resp.data else default
+
+
 def get_website_categories(website_id: int) -> list[str]:
     """websites.category is a comma-separated free-text field that already
     drives niche discovery (e.g. "AI tools, business/SaaS software

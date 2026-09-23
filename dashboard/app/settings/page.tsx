@@ -31,6 +31,9 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [articleAutomation, setArticleAutomationState] = useState<boolean | null>(null);
+  const [serankingKeyState, setSerankingKeyState] = useState<{ override_set: boolean; masked: string | null } | null>(null);
+  const [serankingKeyInput, setSerankingKeyInput] = useState("");
+  const [serankingKeySaving, setSerankingKeySaving] = useState(false);
 
   const load = () => {
     api.websites().then((ws) => {
@@ -39,6 +42,7 @@ export default function SettingsPage() {
       setWpDrafts(Object.fromEntries(ws.map((w) => [w.website_id, wpDraftFrom(w)])));
     }).catch((e) => setErr(String(e)));
     api.articleAutomation().then((r) => setArticleAutomationState(r.enabled)).catch(() => {});
+    api.getSerankingApiKey().then(setSerankingKeyState).catch(() => {});
   };
 
   useEffect(() => { load(); }, []);
@@ -95,6 +99,24 @@ export default function SettingsPage() {
     } catch (e) { setErr(String(e)); }
   }
 
+  async function saveSerankingKey() {
+    if (!serankingKeyInput.trim()) return;
+    setSerankingKeySaving(true); setErr(null);
+    try {
+      const r = await api.setSerankingApiKey(serankingKeyInput.trim());
+      setSerankingKeyState(r);
+      setSerankingKeyInput("");
+    } catch (e) { setErr(String(e)); } finally { setSerankingKeySaving(false); }
+  }
+
+  async function clearSerankingKey() {
+    setSerankingKeySaving(true); setErr(null);
+    try {
+      const r = await api.clearSerankingApiKey();
+      setSerankingKeyState(r);
+    } catch (e) { setErr(String(e)); } finally { setSerankingKeySaving(false); }
+  }
+
   function wpDirty(w: SiteOverview): boolean {
     const d = wpDrafts[w.website_id];
     if (!d) return false;
@@ -132,6 +154,41 @@ export default function SettingsPage() {
             className={articleAutomation ? "danger" : "primary"}
           >
             {articleAutomation === null ? "…" : articleAutomation ? "Pause article automation" : "Resume article automation"}
+          </button>
+        </div>
+      </div>
+
+      <div className="panel" style={{ marginBottom: 20 }}>
+        <h2 style={{ margin: 0 }}>SE Ranking API key</h2>
+        <p className="muted" style={{ margin: "4px 0 12px" }}>
+          Overrides the SERANKING_API_KEY environment variable without touching Render/GitHub
+          secrets or redeploying - picked up fresh on the very next run. Clearing it falls back
+          to whatever&apos;s set in this service&apos;s own environment.
+        </p>
+        <div className="row" style={{ marginBottom: 10 }}>
+          <span className="muted">
+            {serankingKeyState === null
+              ? "…"
+              : serankingKeyState.override_set
+                ? <>Override active: <b>{serankingKeyState.masked}</b></>
+                : "Using the environment variable (no override set)"}
+          </span>
+          {serankingKeyState?.override_set && (
+            <button onClick={clearSerankingKey} disabled={serankingKeySaving} className="danger">
+              Clear override
+            </button>
+          )}
+        </div>
+        <div className="row">
+          <input
+            type="password"
+            placeholder="New SE Ranking API key"
+            value={serankingKeyInput}
+            onChange={(e) => setSerankingKeyInput(e.target.value)}
+            style={{ flex: 1 }}
+          />
+          <button onClick={saveSerankingKey} disabled={serankingKeySaving || !serankingKeyInput.trim()} className="primary">
+            {serankingKeySaving ? "Saving…" : "Save"}
           </button>
         </div>
       </div>

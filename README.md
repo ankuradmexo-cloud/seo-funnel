@@ -66,7 +66,7 @@ to make the next one cheaper.
 |---|---|---|---|
 | 1 | Niche selection | `niche_discovery.py` | 0–1 DeepSeek calls |
 | 2 | Seed generation | `seed_generation.py` | 1 DeepSeek call |
-| 3 | Discovery expansion | `discovery.py` | ~450 SE Ranking credits/seed (similar + questions, both 10/keyword returned) |
+| 3 | Discovery expansion | `discovery.py` | ~200 SE Ranking credits/seed (similar + questions, both 10/keyword returned) |
 | 4 | Exact dedup | `normalize.py` | free |
 | 5 | Demand validation | `demand_validation.py` | 100 SE Ranking credits, **flat** |
 | 6 | Relevance filter | `relevance_filter.py` | 1 DeepSeek call per 100 candidates |
@@ -183,7 +183,10 @@ Both are free account-metadata reads — checking costs nothing.
 
 Requirements are derived from the cost dials, not hardcoded, so raising
 `SEEDS_PER_NICHE` raises the bar a run must clear. At current defaults: SE Ranking
-~18,600 credits (similar + questions + demand + per-candidate SERP checks), DeepSeek $0.10.
+~11,100 credits (similar + questions + demand + per-candidate SERP checks), DeepSeek $0.10.
+(Was ~18,600 until `SIMILAR_LIMIT_PER_SEED` and `MAX_TOOL_CALLS_PER_RUN` got
+recalibrated for SE Ranking's actual per-unit cost - see their own comments
+in `src/config.py`.)
 
 A bounced run creates **no `pipeline_runs` row** — nothing ran. The result is
 written to `system_config.credit_preflight` and the dashboard shows a
@@ -205,12 +208,12 @@ All settings are environment variables; none require a code change. See
 | Variable | Default | Effect |
 |---|---|---|
 | `SEEDS_PER_NICHE` | 30 | Primary cost dial. Each seed ≈ (`similar` + `questions`) × 10 SE Ranking credits. |
-| `SIMILAR_LIMIT_PER_SEED` | 30 | Discovery volume driver, replaces the old Scrappa autocomplete BFS. 10 SE Ranking credits/keyword returned. |
+| `SIMILAR_LIMIT_PER_SEED` | 5 | Discovery volume driver, replaces the old Scrappa autocomplete BFS. 10 SE Ranking credits/keyword returned - originally defaulted to 30 (matching autocomplete's old breadth) before realizing that endpoint's flat ~1-credit billing doesn't carry over; cut to 5. |
 | `QUESTIONS_LIMIT_PER_SEED` | 15 | Second cost dial. Multiplies with the first. |
 | `RELATED_LIMIT_PER_SEED` | 0 | Off. Raise to re-enable `related`. |
 | `MAX_DIFFICULTY_TO_JUDGE` | 40 | Hard cutoff before the judge. 100 disables it. |
 | `MAX_KEYWORDS_PER_SITE_PER_DAY` | 2 | Publishing target; stops the judge loop. |
-| `MAX_TOOL_CALLS_PER_RUN` | 100 | DeepSeek budget. Raises `BudgetExceeded`, exempt from retry. |
+| `MAX_TOOL_CALLS_PER_RUN` | 50 | DeepSeek budget - raises `BudgetExceeded`, exempt from retry. Also the worst-case cap on SE Ranking SERP checks (50 credits each); was 100 before that got expensive. |
 | `MAX_CANDIDATES_TO_JUDGE_PER_RUN` | 200 | Safety rail only, not an active filter. |
 
 Secrets: `DEEPSEEK_API_KEY`, `SERANKING_API_KEY`, `SUPABASE_URL`,

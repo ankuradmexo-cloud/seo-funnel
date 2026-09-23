@@ -18,10 +18,16 @@ const CHANNELS: { key: OffpageChannel; label: string; triggerLabel: string; blur
     blurb: "Real directory/listing sites in this site's categories, with a drafted listing blurb - submission stays manual.",
   },
   {
-    key: "guest_post",
-    label: "Guest posts",
-    triggerLabel: "Find guest post opportunities",
-    blurb: "Sites accepting outside contributions in this site's categories, with a drafted pitch email referencing a real published article.",
+    key: "resource_page",
+    label: "Resource pages",
+    triggerLabel: "Find resource page opportunities",
+    blurb: "Curated \"resources\"/links pages in this site's categories, with a drafted pitch to get added - a one-line ask, not a guest article.",
+  },
+  {
+    key: "broken_link",
+    label: "Broken links",
+    triggerLabel: "Find broken link opportunities",
+    blurb: "Resource pages with a real dead link found and verified, with a drafted pitch suggesting a live article as the replacement.",
   },
 ];
 

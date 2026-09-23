@@ -15,6 +15,25 @@ SERANKING_BASE_URL = "https://api.seranking.com/v1"
 SERP_LOCATION_ID_US = 2840
 
 
+def _resolve_api_key() -> str:
+    """Prefers a key set via the dashboard's Settings page (stored in
+    Supabase system_config, see src/api/routes/settings.py) over the
+    SERANKING_API_KEY env var - lets the key be rotated without touching
+    Render/GitHub secrets or redeploying. Checked fresh on every client
+    construction (this class is built once per run, not held long-lived),
+    so a change takes effect on the very next run. Falls back to the env
+    var if Supabase is unreachable or no override is set - a broken
+    override check must never be why a run can't start."""
+    try:
+        from src.clients.supabase_client import get_config
+        override = get_config("seranking_api_key")
+        if override:
+            return str(override).strip()
+    except Exception:
+        pass
+    return settings.seranking_api_key
+
+
 class SERankingClient:
     """Keyword Research API. Docs: https://seranking.com/api/data/keyword-research/
 
@@ -37,7 +56,7 @@ class SERankingClient:
         self._client = httpx.Client(
             base_url=SERANKING_BASE_URL,
             headers={
-                "Authorization": f"Token {settings.seranking_api_key}",
+                "Authorization": f"Token {_resolve_api_key()}",
                 "Content-Type": "application/json",
             },
             timeout=60,

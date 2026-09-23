@@ -19,6 +19,24 @@ SERANKING_EXPORT_CREDITS = 100
 SERANKING_SERP_CREDITS_PER_TASK = 50
 
 
+def _resolve_api_key() -> str:
+    """Prefers a key set via the dashboard's Settings page (stored in
+    Supabase system_config, see src/api/routes/settings.py) over the
+    SERANKING_API_KEY env var - lets the key be rotated without touching
+    Render/GitHub secrets or redeploying. Checked fresh on every client
+    construction, so a change takes effect on the very next run. Falls
+    back to the env var if Supabase is unreachable or no override is set -
+    a broken override check must never be why a run can't start."""
+    try:
+        from clients.db_client import get_config
+        override = get_config("seranking_api_key")
+        if override:
+            return str(override).strip()
+    except Exception:
+        pass
+    return settings.seranking_api_key
+
+
 class SERankingClient:
     """keywords/export (demand validation) and serp/classic (replaces
     Scrappa's SERP fetch - see serp_research.py). serp/classic is async:
@@ -31,7 +49,7 @@ class SERankingClient:
         self._client = httpx.Client(
             base_url=SERANKING_BASE_URL,
             headers={
-                "Authorization": f"Token {settings.seranking_api_key}",
+                "Authorization": f"Token {_resolve_api_key()}",
                 "Content-Type": "application/json",
             },
             timeout=60,

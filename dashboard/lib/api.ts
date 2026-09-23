@@ -81,7 +81,7 @@ export type BacklinkCandidate = {
   found_at: string;
 };
 
-export type OffpageChannel = "directory" | "guest_post" | "social";
+export type OffpageChannel = "directory" | "resource_page" | "broken_link" | "social";
 
 export type OffpageJob = {
   job_id: number; website_id: number; channel: OffpageChannel;
@@ -166,6 +166,13 @@ export const api = {
   articleAutomation: () => req<{ enabled: boolean }>("/automation/articles"),
   setArticleAutomation: (enabled: boolean) =>
     req<{ enabled: boolean }>("/automation/articles", { method: "POST", body: JSON.stringify({ enabled }) }),
+  getSerankingApiKey: () => req<{ override_set: boolean; masked: string | null }>("/settings/seranking-api-key"),
+  setSerankingApiKey: (key: string) =>
+    req<{ override_set: boolean; masked: string | null }>("/settings/seranking-api-key", {
+      method: "POST", body: JSON.stringify({ key }),
+    }),
+  clearSerankingApiKey: () =>
+    req<{ override_set: boolean; masked: string | null }>("/settings/seranking-api-key", { method: "DELETE" }),
   keywords: (params: Record<string, string | number | undefined>) => {
     const q = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => v !== undefined && v !== "" && q.set(k, String(v)));

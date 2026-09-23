@@ -1,28 +1,39 @@
-"""Off-page opportunity research across three channels - directories, guest
-posts, and social/forum threads. Research + drafted outreach only: this
-tool never submits a directory listing, never sends an email, and never
-posts to Reddit or anywhere else. Every draft is meant to be reviewed and
-sent/posted by a human, from their own account - see
-migration_offpage_outreach.sql and the dashboard's Off-Page SEO page.
+"""Off-page opportunity research across three channels - directories,
+resource-page link building, and broken-link building. (A fourth,
+social/forum, exists in code below but isn't exposed in the dashboard -
+Reddit's Data Access Request for this app was rejected, and there's no
+other real data source, so it has nothing to search with right now.)
+Guest posts were removed as a channel entirely - too high-effort for this
+team to act on (writing a full article per opportunity), unlike the other
+three which are a one-line pitch email or a form submission.
+
+Research + drafted outreach only: this tool never submits a directory
+listing, never sends an email, and never posts to Reddit or anywhere else.
+Every draft is meant to be reviewed and sent/posted by a human, from their
+own account - see migration_offpage_outreach.sql and the dashboard's
+Off-Page SEO page.
 
 Usage:
     ./.venv/bin/python tools/offpage_research.py --channel directory --website-id 1
-    ./.venv/bin/python tools/offpage_research.py --channel guest_post --website-id 1
-    ./.venv/bin/python tools/offpage_research.py --channel social --website-id 1
+    ./.venv/bin/python tools/offpage_research.py --channel resource_page --website-id 1
+    ./.venv/bin/python tools/offpage_research.py --channel broken_link --website-id 1
 """
 
 import argparse
 import re
 import sys
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
+import httpx
+from bs4 import BeautifulSoup
 from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from clients import db_client
 from clients.deepseek_client import DeepSeekClient
+from clients.page_scraper import USER_AGENT
 from clients.reddit_client import search_reddit
 from clients.seranking_client import SERankingClient
 from config import settings
@@ -141,44 +152,16 @@ def research_directories(website_id: int, seranking: SERankingClient, deepseek: 
     return opportunities
 
 
-# --- guest post ----------------------------------------------------------
-
-class _GuestPostFilterResult(BaseModel):
-    class Entry(BaseModel):
-        url: str
-        is_genuine_guest_post_page: bool
-        pitch_subject: str
-        pitch_body: str  # empty strings if not genuine
-
-    entries: list[Entry]
-
-
-_GUEST_POST_SYSTEM_PROMPT = """You are screening SERP results to find real "write for us"/guest \
-contributor pages - as opposed to unrelated content that merely ranks for a guest-post query.
-
-For each URL given, with its title and snippet: set is_genuine_guest_post_page true only if it \
-plausibly IS a page accepting external guest contributions in this niche, false otherwise.
-
-For each genuine one, draft a short (under 120 words) pitch email: pitch_subject and pitch_body. \
-Reference our real published article (title/URL given) as proof of the kind of content we'd \
-contribute - specific, not generic ("I write about X and would love to contribute" is too vague; \
-name the actual angle our article took). No flattery filler, no exclamation points, sound like a \
-real person who read their guidelines. Leave pitch_subject/pitch_body as empty strings for \
-anything not genuine.
-
-Return JSON matching the required schema only, same order as given."""
-
-
-def research_guest_posts(website_id: int, seranking: SERankingClient, deepseek: DeepSeekClient) -> list[dict]:
-    wp_config = db_client.get_website_wp_config(website_id) or {}
-    site_name = wp_config.get("name") or f"website {website_id}"
+def _find_resource_pages(website_id: int, seranking: SERankingClient, query_suffix: str) -> tuple[list[str], list[dict]]:
+    """Shared discovery step for resource_page and broken_link - both are
+    looking for the same kind of page (a curated "resources"/"useful
+    links" list in the site's niche), just doing something different with
+    it once found. Returns (categories, raw SERP results)."""
     categories = db_client.get_website_categories(website_id)
-    published = db_client.get_published_articles(website_id, limit=1)
-    if not categories or not published:
-        return []
-    our_article = published[0]
+    if not categories:
+        return [], []
 
-    queries = [f"{_query_safe(c)} write for us" for c in categories[:MAX_QUERIES_PER_RUN]]
+    queries = [f"{_query_safe(c)} {query_suffix}" for c in categories[:MAX_QUERIES_PER_RUN]]
     seen_domains: set[str] = set()
     results: list[dict] = []
     for q in queries:
@@ -189,7 +172,48 @@ def research_guest_posts(website_id: int, seranking: SERankingClient, deepseek: 
                 continue
             seen_domains.add(domain)
             results.append(r)
+    return categories, results
 
+
+# --- resource page link building ------------------------------------------
+
+class _ResourcePageFilterResult(BaseModel):
+    class Entry(BaseModel):
+        url: str
+        is_genuine_resource_page: bool
+        pitch_subject: str
+        pitch_body: str  # empty strings if not genuine
+
+    entries: list[Entry]
+
+
+_RESOURCE_PAGE_SYSTEM_PROMPT = """You are screening SERP results to find real curated resource/\
+link-list pages - a page whose whole purpose is linking out to other useful pages in a niche (a \
+"best resources for X" page, a "useful X links" page, a curated linkroll) - as opposed to an \
+ordinary article, a directory homepage, or a competitor's own content.
+
+For each URL given, with its title and snippet: set is_genuine_resource_page true only if it's \
+plausibly a page that curates/links to OTHER sites' pages as its main content, false otherwise \
+(an ordinary blog post, a product page, a "write for us" page, an unrelated result).
+
+For each genuine one, draft a short (under 100 words) pitch email: pitch_subject and pitch_body, \
+asking to be considered for addition to that specific list. Reference our real published article \
+(title/URL given) and say concretely why it fits that page's existing list, not generically. No \
+flattery filler, no exclamation points. Leave pitch_subject/pitch_body as empty strings for \
+anything not genuine.
+
+Return JSON matching the required schema only, same order as given."""
+
+
+def research_resource_pages(website_id: int, seranking: SERankingClient, deepseek: DeepSeekClient) -> list[dict]:
+    wp_config = db_client.get_website_wp_config(website_id) or {}
+    site_name = wp_config.get("name") or f"website {website_id}"
+    published = db_client.get_published_articles(website_id, limit=1)
+    if not published:
+        return []
+    our_article = published[0]
+
+    categories, results = _find_resource_pages(website_id, seranking, "resources list")
     if not results:
         return []
 
@@ -199,24 +223,135 @@ def research_guest_posts(website_id: int, seranking: SERankingClient, deepseek: 
     )
     user_prompt = (
         f"Our site: {site_name}, categories: {', '.join(categories)}\n"
-        f"Our article to reference: \"{our_article['title']}\" - {our_article['wp_post_url']}\n\n"
+        f"Our article to pitch: \"{our_article['title']}\" - {our_article['wp_post_url']}\n\n"
         f"Candidate URLs:\n{listing}"
     )
     filtered = deepseek.structured_call(
-        _GUEST_POST_SYSTEM_PROMPT, user_prompt, _GuestPostFilterResult, label="offpage_guest_post_filter",
+        _RESOURCE_PAGE_SYSTEM_PROMPT, user_prompt, _ResourcePageFilterResult, label="offpage_resource_page_filter",
     ).model_dump()
 
     opportunities = []
     for entry in filtered["entries"]:
-        if not entry["is_genuine_guest_post_page"]:
+        if not entry["is_genuine_resource_page"]:
             continue
         draft = f"Subject: {entry['pitch_subject']}\n\n{entry['pitch_body']}"
         opportunities.append({
             "target_url": entry["url"],
             "target_domain": _domain(entry["url"]),
             "title": next((r.get("title") for r in results if r.get("link") == entry["url"]), None),
-            "signal_summary": "Accepts external guest contributions in a matching category",
+            "signal_summary": "Curated resource/link-list page in a matching category",
             "contact_info": entry["url"],
+            "outreach_draft": draft,
+        })
+    return opportunities
+
+
+# --- broken link building ---------------------------------------------------
+
+MAX_RESOURCE_PAGES_TO_CRAWL = 4
+MAX_OUTBOUND_LINKS_CHECKED = 15
+LINK_CHECK_TIMEOUT = 5.0
+
+
+def _find_broken_links(page_url: str) -> list[dict]:
+    """Fetches one resource page, extracts its outbound links (external
+    domains only - a page's own internal navigation isn't what we're
+    checking), and HEAD-checks a bounded sample for dead ones. Best-effort:
+    a page that can't be fetched, or a link that can't be conclusively
+    checked (timeout, blocks HEAD requests), is just skipped rather than
+    treated as broken - false positives would make the drafted pitch
+    factually wrong ("your link is dead" when it isn't)."""
+    try:
+        resp = httpx.get(page_url, headers={"User-Agent": USER_AGENT}, timeout=LINK_CHECK_TIMEOUT, follow_redirects=True)
+        resp.raise_for_status()
+    except Exception:
+        return []
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    page_domain = _domain(page_url)
+    candidates: list[tuple[str, str]] = []  # (absolute_url, anchor_text)
+    seen: set[str] = set()
+    for a in soup.find_all("a", href=True):
+        href = urljoin(page_url, a["href"])
+        if not href.startswith("http") or _domain(href) == page_domain or href in seen:
+            continue
+        seen.add(href)
+        candidates.append((href, a.get_text(strip=True)[:100]))
+        if len(candidates) >= MAX_OUTBOUND_LINKS_CHECKED:
+            break
+
+    broken = []
+    for url, anchor in candidates:
+        try:
+            r = httpx.head(url, headers={"User-Agent": USER_AGENT}, timeout=LINK_CHECK_TIMEOUT, follow_redirects=True)
+            if r.status_code >= 400:
+                broken.append({"url": url, "anchor": anchor, "status": r.status_code})
+        except Exception:
+            # A connection failure/timeout on a link check is exactly what
+            # "broken" looks like from here, unlike scrape_page's fetch
+            # (where it means "couldn't analyze," not "confirmed dead") -
+            # DNS failures and dead hosts throw here, not return a status.
+            broken.append({"url": url, "anchor": anchor, "status": None})
+    return broken
+
+
+class _BrokenLinkFilterResult(BaseModel):
+    pitch_subject: str
+    pitch_body: str
+
+
+_BROKEN_LINK_SYSTEM_PROMPT = """You are drafting a short outreach email telling a page owner \
+about ONE dead link on their resource/links page, and suggesting our real published article as a \
+live replacement - genuinely useful information for them, not just a pretext for a link.
+
+Write pitch_subject and pitch_body (under 100 words): name the specific dead link's anchor text so \
+they know exactly which one, mention it appears to be broken, and suggest our article as a relevant \
+replacement - concrete about why it fits, not generic. No flattery filler, no exclamation points, \
+sound like someone who actually visited the page.
+
+Return JSON matching the required schema only."""
+
+
+def research_broken_links(website_id: int, seranking: SERankingClient, deepseek: DeepSeekClient) -> list[dict]:
+    wp_config = db_client.get_website_wp_config(website_id) or {}
+    site_name = wp_config.get("name") or f"website {website_id}"
+    published = db_client.get_published_articles(website_id, limit=1)
+    if not published:
+        return []
+    our_article = published[0]
+
+    _, results = _find_resource_pages(website_id, seranking, "resources links useful sites")
+    if not results:
+        return []
+
+    opportunities = []
+    for r in results[:MAX_RESOURCE_PAGES_TO_CRAWL]:
+        page_url = r.get("link")
+        if not page_url:
+            continue
+        broken = _find_broken_links(page_url)
+        if not broken:
+            continue
+        dead = broken[0]  # one confirmed dead link is enough to justify the outreach
+
+        user_prompt = (
+            f"Our site: {site_name}\n"
+            f"Our article to suggest: \"{our_article['title']}\" - {our_article['wp_post_url']}\n\n"
+            f"Page with the dead link: {page_url} ({r.get('title')})\n"
+            f"Dead link: {dead['url']} (anchor text: \"{dead['anchor']}\", "
+            f"{'HTTP ' + str(dead['status']) if dead['status'] else 'unreachable'})"
+        )
+        drafted = deepseek.structured_call(
+            _BROKEN_LINK_SYSTEM_PROMPT, user_prompt, _BrokenLinkFilterResult, label="offpage_broken_link_draft",
+        ).model_dump()
+        draft = f"Subject: {drafted['pitch_subject']}\n\n{drafted['pitch_body']}"
+
+        opportunities.append({
+            "target_url": page_url,
+            "target_domain": _domain(page_url),
+            "title": r.get("title"),
+            "signal_summary": f"Dead link found: \"{dead['anchor']}\" -> {dead['url']}",
+            "contact_info": page_url,
             "outreach_draft": draft,
         })
     return opportunities
@@ -306,7 +441,12 @@ def research_social(website_id: int, deepseek: DeepSeekClient) -> list[dict]:
     return opportunities
 
 
-CHANNELS = {"directory": research_directories, "guest_post": research_guest_posts, "social": research_social}
+CHANNELS = {
+    "directory": research_directories,
+    "resource_page": research_resource_pages,
+    "broken_link": research_broken_links,
+    "social": research_social,
+}
 
 
 def main():

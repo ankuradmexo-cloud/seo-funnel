@@ -11,6 +11,7 @@ from typing import Optional
 import httpx
 from pydantic import BaseModel
 
+from src.clients.seranking_client import _resolve_api_key
 from src.config import settings
 
 # Per-run requirements, derived from the cost dials rather than hardcoded, so
@@ -48,7 +49,7 @@ def _seranking_balance() -> ProviderBalance:
     try:
         r = httpx.get(
             "https://api.seranking.com/v1/account/credits",
-            headers={"Authorization": f"Token {settings.seranking_api_key}"},
+            headers={"Authorization": f"Token {_resolve_api_key()}"},
             timeout=20,
         )
         r.raise_for_status()

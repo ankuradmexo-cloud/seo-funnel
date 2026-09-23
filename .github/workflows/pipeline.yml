@@ -45,6 +45,6 @@ jobs:
           RELATED_LIMIT_PER_SEED: "0"
           MAX_KEYWORDS_PER_SITE_PER_DAY: "2"
           MAX_DIFFICULTY_TO_JUDGE: "40"
-          MAX_TOOL_CALLS_PER_RUN: "100"
+          MAX_TOOL_CALLS_PER_RUN: "50"  # was 100 - SE Ranking's SERP check costs 50 credits vs Scrappa's ~1, see src/config.py
           MAX_CANDIDATES_TO_JUDGE_PER_RUN: "200"
         run: python run_pipeline.py

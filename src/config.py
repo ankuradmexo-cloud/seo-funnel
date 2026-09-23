@@ -18,7 +18,15 @@ class Settings:
     # max_candidates_to_judge_per_run SEO Judge calls. LLM bulk keyword
     # generation was removed (0-0.8% real-volume hit rate across four tests),
     # so this no longer needs the large headroom it did.
-    max_tool_calls_per_run: int = int(os.environ.get("MAX_TOOL_CALLS_PER_RUN", 100))
+    #
+    # Also doubles as the worst-case cap on SE Ranking SERP checks (one per
+    # judged candidate, see serp_validation.py) - this was fine at 100 back
+    # when Scrappa billed ~1 credit/check, but SE Ranking's serp/classic
+    # task bills 50 credits/check, a 50x jump per unit. Left at the old
+    # value, the worst case alone was 5,000 credits; halved here so the
+    # same safety margin costs proportionally less now that each check is
+    # far more expensive.
+    max_tool_calls_per_run: int = int(os.environ.get("MAX_TOOL_CALLS_PER_RUN", 50))
     max_keywords_per_site_per_day: int = int(
         os.environ.get("MAX_KEYWORDS_PER_SITE_PER_DAY", 2)
     )
@@ -43,10 +51,14 @@ class Settings:
 
     # Replaces the old Scrappa autocomplete BFS as the discovery volume
     # driver - SE Ranking's semantically-similar-keywords endpoint, a single
-    # flat call per seed instead of a multi-level BFS (no yield data yet
-    # against the ~28-31% real-volume hit rate autocomplete measured -
-    # revisit this default once a real batch has run through the judge).
-    similar_limit_per_seed: int = int(os.environ.get("SIMILAR_LIMIT_PER_SEED", 30))
+    # flat call per seed instead of a multi-level BFS. Originally defaulted
+    # to 30 to match autocomplete's old breadth - a real mistake: Scrappa
+    # billed ~1 credit/call flat regardless of volume, but this endpoint
+    # bills 10 credits per RETURNED keyword, so the same number meant a 30x
+    # bigger bill for a source with zero measured yield data. Cut to 5 -
+    # still gives a real breadth signal per seed - until a real batch
+    # through the judge shows it's worth spending more on.
+    similar_limit_per_seed: int = int(os.environ.get("SIMILAR_LIMIT_PER_SEED", 5))
 
     questions_limit_per_seed: int = int(os.environ.get("QUESTIONS_LIMIT_PER_SEED", 15))
     # `related` defaults OFF: ~98% real-volume hit rate, but it returns broad

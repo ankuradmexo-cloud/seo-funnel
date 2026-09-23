@@ -15,7 +15,11 @@ UNIT_COST_USD = {
 
 @router.get("/usage")
 def usage():
-    totals = db.api_usage_totals()
+    # Scrappa was retired (replaced by SE Ranking's serp/classic + similar
+    # endpoints) - its historical rows stay in Supabase as a real audit
+    # trail, but a live usage dashboard showing a dead provider is just
+    # confusing, so this view filters it out rather than deleting the data.
+    totals = [row for row in db.api_usage_totals() if row["provider"] != "scrappa"]
     for row in totals:
         unit = UNIT_COST_USD.get(row["provider"])
         credits = float(row.get("total_credits") or 0)
@@ -23,4 +27,5 @@ def usage():
         row["unit_cost_usd"] = unit
         row["total_cost_usd"] = round(credits * unit, 4) if unit else None
         row["avg_cost_per_run_usd"] = round(avg * unit, 4) if unit else None
-    return {"totals": totals, "by_endpoint": db.api_usage_by_endpoint()}
+    by_endpoint = [row for row in db.api_usage_by_endpoint() if row["provider"] != "scrappa"]
+    return {"totals": totals, "by_endpoint": by_endpoint}

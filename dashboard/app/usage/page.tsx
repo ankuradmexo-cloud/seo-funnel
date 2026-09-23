@@ -26,9 +26,9 @@ export default function UsagePage() {
     <>
       <h1>API usage</h1>
       <p className="sub">
-        Credits are recorded per run. Scrappa bills per request, SE Ranking bills
-        100 flat for demand validation and 10 per returned keyword for questions,
-        and DeepSeek bills by token rather than credits.
+        Credits are recorded per run. SE Ranking bills 100 flat for demand
+        validation, 10 per returned keyword for similar/questions/related, and
+        50 flat per SERP task; DeepSeek bills by token rather than credits.
       </p>
       {err && <div className="err">{err}</div>}
 
