@@ -26,7 +26,16 @@ DEFAULT_TOP_N = 2  # was 8 - checking all 8 competitors' full backlink profiles
                    # Ranking SERP latency stacked on top. 2 covers the
                    # highest-signal competitors at ~1/4 the cost and time.
 DEFAULT_LIMIT = 150
-DEFAULT_MIN_COMPETITORS = 1
+
+# The "gap" signal is a domain PROVEN to link to more than one page on this
+# exact topic, not just any single relevant backlink. min_competitors=1 was
+# fine when top_n=8 (linking to 1 of 8 was still a real, if weaker, signal),
+# but with only 2 competitors checked, requiring just 1 stops filtering for
+# anything - it accepts a domain that linked to either page, no different
+# from an ordinary single backlink. Raised to 2 (both) to keep the actual
+# "repeat linker" signal this technique is built on, matching
+# backlink_gap.py's own MIN_COMPETITORS_LINKED default.
+DEFAULT_MIN_COMPETITORS = 2
 
 
 class BacklinkGapTrigger(BaseModel):
