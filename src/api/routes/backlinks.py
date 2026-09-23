@@ -7,6 +7,7 @@ background and the dashboard polls the job row rather than blocking the
 request."""
 
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -16,6 +17,14 @@ from pydantic import BaseModel
 from src.clients import supabase_client as db
 
 router = APIRouter(tags=["backlinks"])
+
+# A job stuck at "running" past this is treated as dead, not slow - measured
+# directly: two real jobs got orphaned by a server redeploy killing the
+# subprocess mid-run and sat at "running" for hours/days with no way to
+# retry. Real completed runs have taken up to ~25 minutes under today's SE
+# Ranking latency, so this stays well above that instead of flagging a
+# merely-slow run as stale.
+JOB_STALE_MINUTES = 30
 
 ARTICLE_PIPELINE_DIR = Path(__file__).resolve().parents[3] / "article-pipeline"
 ARTICLE_PIPELINE_PYTHON = ARTICLE_PIPELINE_DIR / ".venv" / "bin" / "python"
@@ -84,6 +93,10 @@ def get_backlink_job(job_id: int):
     job = db.get_backlink_gap_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
+    if job["status"] == "running":
+        started = datetime.fromisoformat(job["started_at"])
+        if (datetime.now(timezone.utc) - started).total_seconds() > JOB_STALE_MINUTES * 60:
+            job = db.mark_backlink_gap_job_stale(job_id) or job
     return job
 
 

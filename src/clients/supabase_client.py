@@ -527,6 +527,26 @@ def start_backlink_gap_job(keyword_id: int, website_id: int) -> dict:
     return resp.data[0]
 
 
+def mark_backlink_gap_job_stale(job_id: int) -> Optional[dict]:
+    """A job stuck at 'running' past a generous time ceiling almost always
+    means its subprocess died without reporting back (a server redeploy
+    killing it mid-run, measured directly - twice) rather than a genuinely
+    slow run. Called from the GET route when polling finds one this old, so
+    the dashboard self-heals instead of showing "Running..." forever."""
+    resp = (
+        _client.table("backlink_gap_jobs")
+        .update({
+            "status": "failed",
+            "error_message": "No update in over 30 minutes - the subprocess likely died without "
+                              "reporting back (e.g. a server redeploy mid-run). Try again.",
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+        })
+        .eq("job_id", job_id)
+        .execute()
+    )
+    return resp.data[0] if resp.data else None
+
+
 def get_backlink_gap_job(job_id: int) -> Optional[dict]:
     resp = _client.table("backlink_gap_jobs").select("*").eq("job_id", job_id).execute()
     return resp.data[0] if resp.data else None
@@ -582,6 +602,24 @@ def start_offpage_job(website_id: int, channel: str) -> dict:
         .execute()
     )
     return resp.data[0]
+
+
+def mark_offpage_job_stale(job_id: int) -> Optional[dict]:
+    """Same self-healing check as mark_backlink_gap_job_stale - a job stuck
+    at 'running' this long almost certainly had its subprocess killed
+    without reporting back."""
+    resp = (
+        _client.table("outreach_jobs")
+        .update({
+            "status": "failed",
+            "error_message": "No update in over 30 minutes - the subprocess likely died without "
+                              "reporting back (e.g. a server redeploy mid-run). Try again.",
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+        })
+        .eq("job_id", job_id)
+        .execute()
+    )
+    return resp.data[0] if resp.data else None
 
 
 def get_offpage_job(job_id: int) -> Optional[dict]:

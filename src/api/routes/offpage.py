@@ -7,6 +7,7 @@ Every channel here only produces research + a drafted outreach message -
 nothing is ever sent or posted automatically."""
 
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -19,6 +20,10 @@ router = APIRouter(tags=["offpage"])
 
 ARTICLE_PIPELINE_DIR = Path(__file__).resolve().parents[3] / "article-pipeline"
 ARTICLE_PIPELINE_PYTHON = ARTICLE_PIPELINE_DIR / ".venv" / "bin" / "python"
+
+# Same self-healing staleness check as backlinks.py - see its comment for
+# the real orphaned-job incidents that motivated this.
+JOB_STALE_MINUTES = 30
 
 Channel = Literal["directory", "resource_page", "broken_link", "social"]
 
@@ -57,6 +62,10 @@ def get_offpage_job(job_id: int):
     job = db.get_offpage_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
+    if job["status"] == "running":
+        started = datetime.fromisoformat(job["started_at"])
+        if (datetime.now(timezone.utc) - started).total_seconds() > JOB_STALE_MINUTES * 60:
+            job = db.mark_offpage_job_stale(job_id) or job
     return job
 
 
