@@ -110,16 +110,16 @@ def research_directories(website_id: int, seranking: SERankingClient, deepseek: 
     if not categories:
         return []
 
-    queries = [f"{_query_safe(c)} submit your site directory" for c in categories[:MAX_QUERIES_PER_RUN]]
     seen_domains: set[str] = set()
     results: list[dict] = []
-    for q in queries:
-        serp = seranking.serp_search(q)
+    for c in categories[:MAX_QUERIES_PER_RUN]:
+        serp = seranking.serp_search(f"{_query_safe(c)} submit your site directory")
         for r in serp["top_results"][:MAX_RESULTS_PER_QUERY]:
             domain = _domain(r.get("link") or "")
             if not domain or domain in seen_domains:
                 continue
             seen_domains.add(domain)
+            r["_source_category"] = c  # which category's query found this - see signal_summary below
             results.append(r)
 
     if not results:
@@ -141,11 +141,12 @@ def research_directories(website_id: int, seranking: SERankingClient, deepseek: 
     for entry in filtered["entries"]:
         if not entry["is_genuine_directory"]:
             continue
+        matched = next((r for r in results if r.get("link") == entry["url"]), None)
         opportunities.append({
             "target_url": entry["url"],
             "target_domain": _domain(entry["url"]),
-            "title": next((r.get("title") for r in results if r.get("link") == entry["url"]), None),
-            "signal_summary": "Directory accepting submissions in a matching category",
+            "title": (matched or {}).get("title"),
+            "signal_summary": f"Category: {(matched or {}).get('_source_category', '?')} - directory accepting submissions",
             "contact_info": entry["url"],
             "outreach_draft": entry["listing_blurb"],
         })
@@ -161,16 +162,16 @@ def _find_resource_pages(website_id: int, seranking: SERankingClient, query_suff
     if not categories:
         return [], []
 
-    queries = [f"{_query_safe(c)} {query_suffix}" for c in categories[:MAX_QUERIES_PER_RUN]]
     seen_domains: set[str] = set()
     results: list[dict] = []
-    for q in queries:
-        serp = seranking.serp_search(q)
+    for c in categories[:MAX_QUERIES_PER_RUN]:
+        serp = seranking.serp_search(f"{_query_safe(c)} {query_suffix}")
         for r in serp["top_results"][:MAX_RESULTS_PER_QUERY]:
             domain = _domain(r.get("link") or "")
             if not domain or domain in seen_domains:
                 continue
             seen_domains.add(domain)
+            r["_source_category"] = c  # which category's query found this - see signal_summary
             results.append(r)
     return categories, results
 
@@ -234,12 +235,13 @@ def research_resource_pages(website_id: int, seranking: SERankingClient, deepsee
     for entry in filtered["entries"]:
         if not entry["is_genuine_resource_page"]:
             continue
+        matched = next((r for r in results if r.get("link") == entry["url"]), None)
         draft = f"Subject: {entry['pitch_subject']}\n\n{entry['pitch_body']}"
         opportunities.append({
             "target_url": entry["url"],
             "target_domain": _domain(entry["url"]),
-            "title": next((r.get("title") for r in results if r.get("link") == entry["url"]), None),
-            "signal_summary": "Curated resource/link-list page in a matching category",
+            "title": (matched or {}).get("title"),
+            "signal_summary": f"Category: {(matched or {}).get('_source_category', '?')} - curated resource/link-list page",
             "contact_info": entry["url"],
             "outreach_draft": draft,
         })
@@ -350,7 +352,8 @@ def research_broken_links(website_id: int, seranking: SERankingClient, deepseek:
             "target_url": page_url,
             "target_domain": _domain(page_url),
             "title": r.get("title"),
-            "signal_summary": f"Dead link found: \"{dead['anchor']}\" -> {dead['url']}",
+            "signal_summary": f"Category: {r.get('_source_category', '?')} - dead link found: "
+                              f"\"{dead['anchor']}\" -> {dead['url']}",
             "contact_info": page_url,
             "outreach_draft": draft,
         })
@@ -408,6 +411,7 @@ def research_social(website_id: int, deepseek: DeepSeekClient) -> list[dict]:
             if not t.get("permalink") or t["permalink"] in seen_links:
                 continue
             seen_links.add(t["permalink"])
+            t["_source_category"] = c
             threads.append(t)
 
     if not threads:
@@ -434,7 +438,8 @@ def research_social(website_id: int, deepseek: DeepSeekClient) -> list[dict]:
             "target_url": thread["permalink"],
             "target_domain": "reddit.com",
             "title": thread["title"],
-            "signal_summary": f"r/{thread.get('subreddit')} - {thread.get('num_comments', 0)} comments, score {thread.get('score', 0)}",
+            "signal_summary": f"Category: {thread.get('_source_category', '?')} - r/{thread.get('subreddit')} - "
+                              f"{thread.get('num_comments', 0)} comments, score {thread.get('score', 0)}",
             "contact_info": None,
             "outreach_draft": entry["reply_draft"],
         })
