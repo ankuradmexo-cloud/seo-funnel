@@ -6,6 +6,7 @@ as a subprocess rather than importing it directly. Fires it in the
 background and the dashboard polls the job row rather than blocking the
 request."""
 
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +26,16 @@ router = APIRouter(tags=["backlinks"])
 # Ranking latency, so this stays well above that instead of flagging a
 # merely-slow run as stale.
 JOB_STALE_MINUTES = 30
+
+
+def _parse_ts(ts: str) -> datetime:
+    """Supabase can return an arbitrary number of fractional-second digits
+    (Postgres trims trailing zeros), which datetime.fromisoformat only
+    accepts on Python 3.11+ - measured directly: crashed this exact check
+    with '...T13:24:24.48028+00:00' (5 digits) on Python 3.9. A staleness
+    check measured in minutes doesn't need sub-second precision, so the
+    fraction is dropped entirely rather than padded to a valid length."""
+    return datetime.fromisoformat(re.sub(r"\.\d+", "", ts))
 
 ARTICLE_PIPELINE_DIR = Path(__file__).resolve().parents[3] / "article-pipeline"
 ARTICLE_PIPELINE_PYTHON = ARTICLE_PIPELINE_DIR / ".venv" / "bin" / "python"
@@ -94,7 +105,7 @@ def get_backlink_job(job_id: int):
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     if job["status"] == "running":
-        started = datetime.fromisoformat(job["started_at"])
+        started = _parse_ts(job["started_at"])
         if (datetime.now(timezone.utc) - started).total_seconds() > JOB_STALE_MINUTES * 60:
             job = db.mark_backlink_gap_job_stale(job_id) or job
     return job

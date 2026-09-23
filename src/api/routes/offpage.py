@@ -6,6 +6,7 @@ interpreter as a subprocess, same pattern as src/api/routes/backlinks.py.
 Every channel here only produces research + a drafted outreach message -
 nothing is ever sent or posted automatically."""
 
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,13 @@ ARTICLE_PIPELINE_PYTHON = ARTICLE_PIPELINE_DIR / ".venv" / "bin" / "python"
 # Same self-healing staleness check as backlinks.py - see its comment for
 # the real orphaned-job incidents that motivated this.
 JOB_STALE_MINUTES = 30
+
+
+def _parse_ts(ts: str) -> datetime:
+    """See backlinks.py's _parse_ts - datetime.fromisoformat crashes on
+    Python 3.9 when Supabase trims trailing zeros off the fractional
+    seconds (a real, measured bug, not hypothetical)."""
+    return datetime.fromisoformat(re.sub(r"\.\d+", "", ts))
 
 Channel = Literal["directory", "resource_page", "broken_link", "social"]
 
@@ -63,7 +71,7 @@ def get_offpage_job(job_id: int):
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     if job["status"] == "running":
-        started = datetime.fromisoformat(job["started_at"])
+        started = _parse_ts(job["started_at"])
         if (datetime.now(timezone.utc) - started).total_seconds() > JOB_STALE_MINUTES * 60:
             job = db.mark_offpage_job_stale(job_id) or job
     return job
