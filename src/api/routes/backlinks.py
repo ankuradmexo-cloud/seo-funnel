@@ -2,10 +2,9 @@
 SE Ranking backlink pulls, spam/relevance filtering) lives in
 article-pipeline/tools/backlink_gap.py - a separate Python environment from
 this FastAPI app, so triggering it means spawning that venv's interpreter
-as a subprocess rather than importing it directly. One run takes a couple
-of minutes and spends real SE Ranking credits (~600 on average, measured),
-so this fires it in the background and the dashboard polls the job row
-rather than blocking the request."""
+as a subprocess rather than importing it directly. Fires it in the
+background and the dashboard polls the job row rather than blocking the
+request."""
 
 import subprocess
 from pathlib import Path
@@ -21,7 +20,11 @@ router = APIRouter(tags=["backlinks"])
 ARTICLE_PIPELINE_DIR = Path(__file__).resolve().parents[3] / "article-pipeline"
 ARTICLE_PIPELINE_PYTHON = ARTICLE_PIPELINE_DIR / ".venv" / "bin" / "python"
 
-DEFAULT_TOP_N = 8
+DEFAULT_TOP_N = 2  # was 8 - checking all 8 competitors' full backlink profiles
+                   # (up to 1,200 SE Ranking credit lookups) made this the
+                   # slowest step of a run, especially with today's SE
+                   # Ranking SERP latency stacked on top. 2 covers the
+                   # highest-signal competitors at ~1/4 the cost and time.
 DEFAULT_LIMIT = 150
 DEFAULT_MIN_COMPETITORS = 1
 
