@@ -1,10 +1,9 @@
 """Pre-run credit checks.
 
-SE Ranking is now the pipeline's only credit-metered provider (discovery,
-demand validation, and SERP checks all run through it, replacing the old
-Scrappa autocomplete/SERP calls), so it's checked before the run starts.
-The balance endpoint is a free account-metadata read that consumes no
-credits.
+Two credit-metered providers as of 2026-09-24: SE Ranking (discovery's
+`questions`/`related` sources, demand validation) and Scrappa (autocomplete
+discovery, SERP checks) - both checked before the run starts. Both balance
+endpoints are free account-metadata reads that consume no credits.
 """
 
 from typing import Optional
@@ -17,21 +16,29 @@ from src.config import settings
 # Per-run requirements, derived from the cost dials rather than hardcoded, so
 # raising SEEDS_PER_NICHE also raises the bar a run has to clear.
 #
-#   SE Ranking one flat 100-credit demand call, plus similar/questions/related
-#              at 10 credits per keyword returned (worst case every seed
-#              returns its full limit) plus one 50-credit SERP task per
-#              judged candidate (bounded by the DeepSeek budget).
-#   DeepSeek   billed in dollars, not credits. A run's judge calls are small;
-#              this floor only catches an account that is actually empty.
+#   SE Ranking one flat 100-credit demand call, plus questions/related at 10
+#              credits per keyword returned (worst case every seed returns
+#              its full limit).
+#   Scrappa    autocomplete BFS is seeds x (1 + breadth) calls, plus one SERP
+#              check per judged candidate (bounded by max_candidates_to_judge_per_run,
+#              the real ceiling now that judging doesn't stop early).
+#   DeepSeek   billed in dollars, not credits. Judge calls are batched and
+#              small; this floor only catches an account that is actually
+#              empty.
+_AUTOCOMPLETE_BREADTH = 10
 MIN_DEEPSEEK_USD = 0.10
 
 
 def seranking_credits_needed() -> int:
-    similar = settings.seeds_per_niche * settings.similar_limit_per_seed * 10
     questions = settings.seeds_per_niche * settings.questions_limit_per_seed * 10
     related = settings.seeds_per_niche * settings.related_limit_per_seed * 10
-    serp_checks = settings.max_tool_calls_per_run * 50
-    return 100 + similar + questions + related + serp_checks
+    return 100 + questions + related
+
+
+def scrappa_credits_needed() -> int:
+    autocomplete = settings.seeds_per_niche * (1 + _AUTOCOMPLETE_BREADTH)
+    serp_checks = settings.max_candidates_to_judge_per_run
+    return autocomplete + serp_checks
 
 
 class ProviderBalance(BaseModel):
@@ -93,6 +100,31 @@ def _seranking_balance() -> ProviderBalance:
         )
 
 
+def _scrappa_balance() -> ProviderBalance:
+    need = scrappa_credits_needed()
+    try:
+        r = httpx.get(
+            "https://scrappa.co/api/account/usage",
+            headers={"x-api-key": settings.scrappa_api_key},
+            timeout=20,
+        )
+        r.raise_for_status()
+        body = r.json()
+        usable = (body.get("credits") or {}).get("usable")
+        if usable is None:
+            usable = body.get("balance")
+        usable = float(usable or 0)
+        return ProviderBalance(
+            provider="scrappa", ok=usable >= need, remaining=usable, required=need,
+            detail=None if usable >= need else f"{usable:,.0f} credits left, run needs ~{need:,}",
+        )
+    except Exception as e:  # noqa: BLE001 - an unreachable check must not block a run
+        return ProviderBalance(
+            provider="scrappa", ok=True, required=need, checked=False,
+            detail=f"balance check unavailable: {e}",
+        )
+
+
 def _deepseek_balance() -> ProviderBalance:
     try:
         r = httpx.get(
@@ -122,7 +154,7 @@ def _deepseek_balance() -> ProviderBalance:
 
 def check_balances() -> list[ProviderBalance]:
     """Read every provider's balance. Free - no credits are consumed."""
-    return [_seranking_balance(), _deepseek_balance()]
+    return [_seranking_balance(), _scrappa_balance(), _deepseek_balance()]
 
 
 def preflight() -> dict:

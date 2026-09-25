@@ -1,5 +1,5 @@
 from src.clients.deepseek_client import DeepSeekClient
-from src.models.schemas import DemandMetrics, SerpSignal, SeoJudgeOutput
+from src.models.schemas import BatchSeoJudgeOutput, DemandMetrics, SerpSignal, SeoJudgeOutput
 
 SYSTEM_PROMPT = """You are an SEO opportunity judge for a small, low-authority website. \
 Score a keyword candidate 0-100 on whether it is a realistic, winnable ranking opportunity. \
@@ -74,6 +74,71 @@ comparative depth (reviews, buying guides, "X vs Y", "is it worth it") are what'
 that's evidence readers DO engage with longer content here - approve it on that basis.
 
 Return JSON matching the required schema only."""
+
+_BATCH_WRAPPER = """You will be given MULTIPLE keywords to judge in this one call, each under its \
+own "### Keyword: <text>" heading with its own data. Apply every rule above to EACH keyword \
+independently - one keyword's demand/SERP/niche fit must never influence another's verdict. \
+Return one verdict per keyword given, no more, no fewer, each with its `keyword` field set to \
+that keyword's exact text (verbatim, used to match verdicts back to candidates - do not \
+paraphrase or normalize it). Return JSON matching the required schema only."""
+
+BATCH_SYSTEM_PROMPT = SYSTEM_PROMPT.rsplit("\n\nReturn JSON matching the required schema only.", 1)[0] + "\n\n" + _BATCH_WRAPPER
+
+
+def _demand_block(keyword: str, demand: DemandMetrics, serp: SerpSignal) -> str:
+    results_block = "\n".join(
+        f"  {r.position}. {r.title} ({r.source}) - {r.snippet}"
+        for r in serp.top_results
+    ) or "  (no organic results returned)"
+    trend_block = ", ".join(
+        f"{month}:{vol}" for month, vol in sorted(demand.history_trend.items())
+    ) or "(no trend data)"
+    return (
+        f"Search volume: {demand.search_volume}\n"
+        f"CPC: {demand.cpc}\n"
+        f"Paid competition (0-1): {demand.competition}\n"
+        f"Keyword difficulty (0-100): {demand.difficulty}\n"
+        f"Search intent codes: {', '.join(demand.intents) or '(none returned)'}\n"
+        f"12-month volume trend: {trend_block}\n"
+        f"Total Google results for this query: {serp.total_results}\n"
+        f"Current top organic results:\n{results_block}\n"
+    )
+
+
+def judge_keywords_batch(
+    deepseek: DeepSeekClient,
+    candidates: list[tuple[str, DemandMetrics, SerpSignal]],
+    niche: str,
+) -> list[SeoJudgeOutput]:
+    """Judges multiple keywords in ONE DeepSeek call instead of one call
+    per keyword - the fixed system prompt (the bulk of a judge call's
+    tokens, ~1,850 of ~2,000 measured on a real call) is paid for once per
+    batch instead of once per keyword, meaningfully cutting spend once
+    every demand-validated candidate gets judged instead of stopping at
+    the daily shortlist target (see orchestrator.py). Falls back to
+    per-keyword judging for any keyword the batch response is missing a
+    verdict for, rather than silently dropping it."""
+    if not candidates:
+        return []
+
+    blocks = "\n".join(
+        f"### Keyword: {kw}\nNiche: {niche}\n{_demand_block(kw, demand, serp)}"
+        for kw, demand, serp in candidates
+    )
+    user_prompt = f"Judge each of the following {len(candidates)} keywords independently:\n\n{blocks}"
+    result = deepseek.structured_call(BATCH_SYSTEM_PROMPT, user_prompt, BatchSeoJudgeOutput)
+    verdicts_by_keyword = {v.keyword: v for v in result.verdicts}
+
+    out = []
+    for kw, demand, serp in candidates:
+        verdict = verdicts_by_keyword.get(kw)
+        if verdict is None:
+            # Batch response dropped this one - judge it alone rather than
+            # silently losing a candidate that already cost real SE Ranking/
+            # Scrappa credits to reach this point.
+            verdict = judge_keyword(deepseek, kw, demand, serp, niche)
+        out.append(verdict)
+    return out
 
 
 def judge_keyword(

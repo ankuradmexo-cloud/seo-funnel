@@ -3,11 +3,12 @@ from typing import Optional
 from datetime import datetime, timezone
 
 from src.clients.deepseek_client import DeepSeekClient, BudgetExceeded
+from src.clients.scrappa_client import ScrappaClient
 from src.clients.seranking_client import SERankingClient
 from src.clients import supabase_client as db
 from src.clients.usage import UsageTracker
 from src.config import settings
-from src.models.schemas import Website
+from src.models.schemas import DemandMetrics, SerpSignal, Website
 from src.pipeline.niche_discovery import discover_niches
 from src.pipeline.seed_generation import generate_seeds
 from src.pipeline.discovery import discover_keywords
@@ -15,7 +16,7 @@ from src.pipeline.normalize import normalize_keyword, dedup_key, exact_dedup
 from src.pipeline.demand_validation import validate_demand
 from src.pipeline.relevance_filter import filter_relevant
 from src.pipeline.serp_validation import check_serp
-from src.pipeline.seo_judge import judge_keyword
+from src.pipeline.seo_judge import judge_keywords_batch
 
 
 def _log(website_id: int, keyword_id: Optional[int], stage: str, input_data: dict, output_data: dict) -> None:
@@ -64,9 +65,13 @@ def _ensure_niches(deepseek: DeepSeekClient, website: Website) -> None:
 
 def run_for_website(website: Website) -> dict:
     """Processes exactly ONE niche per call (whichever has waited longest in
-    the rotation), and stops once the per-run keyword target is hit or the
-    niche's candidates run out - so a single run never burns the token budget
-    across every niche at once, and every niche gets a turn over time."""
+    the rotation) - so a single run never burns the token budget across
+    every niche at once, and every niche gets a turn over time. Judges
+    every demand-validated candidate rather than stopping at the daily
+    shortlist target (see the Stage 6/7 comment below) -
+    MAX_KEYWORDS_PER_SITE_PER_DAY now only throttles how many shortlisted
+    keywords the article pipeline PUBLISHES per day, not how many get
+    discovered/judged here."""
     usage = UsageTracker()
     deepseek = DeepSeekClient(usage=usage)
 
@@ -82,10 +87,10 @@ def run_for_website(website: Website) -> dict:
     candidates_found = 0
     shortlisted_count = 0
     judged_count = 0
-    target = settings.max_keywords_per_site_per_day
 
     try:
         seranking = SERankingClient(usage=usage)
+        scrappa = ScrappaClient(usage=usage)
 
         existing = db.get_existing_keywords(website.website_id, niche.niche_id)
         existing_normalized = {dedup_key(k) for k in existing}
@@ -106,7 +111,7 @@ def run_for_website(website: Website) -> dict:
         raw_candidates: list[str] = []
         sources_by_keyword: dict[str, set[str]] = {}
         for seed in seeds.seed_keywords:
-            discovered = discover_keywords(seranking, seed)
+            discovered = discover_keywords(scrappa, seranking, seed)
             per_source: dict[str, int] = {}
             for c in discovered:
                 raw_candidates.append(c.keyword)
@@ -215,12 +220,23 @@ def run_for_website(website: Website) -> dict:
                  "cap": settings.max_candidates_to_judge_per_run},
             )
 
-            # Stage 6 - SERP validation + Stage 7 - SEO Judge
+            # Stage 6 - SERP validation for EVERY demand-validated candidate,
+            # no early stop. Every candidate reaching this point already
+            # cost real discovery + demand-validation spend - measured
+            # directly (2026-09-24): stopping once shortlisted_count hit the
+            # daily target of 2 left the rest of a run's already-validated
+            # candidates permanently stuck at status='deduped' with their
+            # demand data discarded, un-revisitable (exact_dedup excludes
+            # any keyword ever seen for this niche, any status) and
+            # un-judgeable - real money spent for nothing. SERP checks are
+            # on Scrappa now (~33x cheaper per check than SE Ranking's old
+            # serp/classic task), which is what makes judging everyone
+            # affordable.
+            to_judge: list[tuple[str, DemandMetrics, SerpSignal]] = []
+            keyword_id_by_kw: dict[str, int] = {}
             for candidate in candidates_to_judge:
-                if shortlisted_count >= target:
-                    break  # hit this run's keyword target - stop, don't burn the rest of the budget
-
                 keyword_id = rows_by_keyword[candidate]["keyword_id"]
+                keyword_id_by_kw[candidate] = keyword_id
                 demand = demand_by_keyword[candidate]
 
                 db.upsert_keyword(
@@ -241,7 +257,7 @@ def run_for_website(website: Website) -> dict:
                 )
 
                 try:
-                    serp_signal = check_serp(seranking, candidate)
+                    serp_signal = check_serp(scrappa, candidate)
                 except BudgetExceeded:
                     raise
                 except Exception as e:
@@ -255,69 +271,81 @@ def run_for_website(website: Website) -> dict:
                     {"candidate": candidate},
                     serp_signal.model_dump(),
                 )
+                to_judge.append((candidate, demand, serp_signal))
 
+            # Stage 7 - SEO Judge, batched (settings.judge_batch_size
+            # keywords/call) to cut DeepSeek spend - the fixed system prompt
+            # is paid for once per batch instead of once per keyword. See
+            # seo_judge.judge_keywords_batch.
+            for i in range(0, len(to_judge), settings.judge_batch_size):
+                batch = to_judge[i:i + settings.judge_batch_size]
                 try:
-                    verdict = judge_keyword(deepseek, candidate, demand, serp_signal, niche.name)
+                    verdicts = judge_keywords_batch(deepseek, batch, niche.name)
                 except BudgetExceeded:
-                    raise  # real stop signal, not a per-candidate hiccup
+                    raise  # real stop signal, not a per-batch hiccup
                 except Exception as e:
-                    # One bad LLM/API response for one candidate shouldn't cost
-                    # everything already validated this run - skip it and move on.
-                    _log(
-                        website.website_id, keyword_id, "seo_judge",
-                        {"candidate": candidate, "demand": demand.model_dump()},
-                        {"error": str(e)},
-                    )
+                    # One bad LLM response for this batch shouldn't cost
+                    # everything already validated this run - skip it and
+                    # move to the next batch.
+                    for candidate, demand, _serp in batch:
+                        _log(
+                            website.website_id, keyword_id_by_kw[candidate], "seo_judge",
+                            {"candidate": candidate, "demand": demand.model_dump()},
+                            {"error": str(e)},
+                        )
                     continue
 
-                _log(
-                    website.website_id, keyword_id, "seo_judge",
-                    {
-                        "candidate": candidate,
-                        "demand": demand.model_dump(),
-                        "serp": serp_signal.model_dump(),
-                    },
-                    verdict.model_dump(),
-                )
+                for (candidate, demand, serp_signal), verdict in zip(batch, verdicts):
+                    keyword_id = keyword_id_by_kw[candidate]
+                    _log(
+                        website.website_id, keyword_id, "seo_judge",
+                        {
+                            "candidate": candidate,
+                            "demand": demand.model_dump(),
+                            "serp": serp_signal.model_dump(),
+                        },
+                        verdict.model_dump(),
+                    )
 
-                judged_count += 1
-                if verdict.approve:
-                    shortlisted_count += 1
+                    judged_count += 1
+                    if verdict.approve:
+                        shortlisted_count += 1
 
-                # Stage 8 - store final verdict
-                final_status = "shortlisted" if verdict.approve else "judged"
-                db.upsert_keyword(
-                    {
-                        "website_id": website.website_id,
-                        "niche_id": niche.niche_id,
-                        "keyword": candidate,
-                        "normalized_keyword": normalize_keyword(candidate),
-                        "status": final_status,
-                        "judge_score": verdict.score,
-                        "judge_rationale": verdict.rationale,
-                        "intent_cluster": verdict.intent_cluster,
-                        "last_updated": _now(),
-                    }
-                )
-                _log(
-                    website.website_id, keyword_id, "store",
-                    {"candidate": candidate},
-                    {"final_status": final_status},
-                )
+                    # Stage 8 - store final verdict. No longer capped at the
+                    # daily target - every real approval gets shortlisted;
+                    # the daily-2 number only governs how many the article
+                    # pipeline PUBLISHES per day (websites.articles_per_day),
+                    # a separate downstream throttle.
+                    final_status = "shortlisted" if verdict.approve else "judged"
+                    db.upsert_keyword(
+                        {
+                            "website_id": website.website_id,
+                            "niche_id": niche.niche_id,
+                            "keyword": candidate,
+                            "normalized_keyword": normalize_keyword(candidate),
+                            "status": final_status,
+                            "judge_score": verdict.score,
+                            "judge_rationale": verdict.rationale,
+                            "intent_cluster": verdict.intent_cluster,
+                            "last_updated": _now(),
+                        }
+                    )
+                    _log(
+                        website.website_id, keyword_id, "store",
+                        {"candidate": candidate},
+                        {"final_status": final_status},
+                    )
 
-        # Retire the niche after TWO consecutive runs that produced no
-        # publishable keyword. One zero-approval run isn't enough evidence -
-        # yield varies a lot between runs on the same niche (this pipeline has
-        # seen 11 approvals and 1 approval from the same niche), so a single
-        # thin run could otherwise kill a viable niche permanently. Only prior
-        # 'success' runs count as evidence; crashed or budget-truncated runs
-        # are ignored by last_successful_run_for_niche.
-        previous = db.last_successful_run_for_niche(niche.niche_id, run_id)
-        exhausted = (
-            shortlisted_count == 0
-            and previous is not None
-            and previous["shortlisted_count"] == 0
-        )
+        # Retire the niche after its FIRST zero-approval run. This was two
+        # consecutive runs (yield genuinely varies - this pipeline has seen
+        # 11 approvals and 1 approval from the same niche), but now that
+        # every demand-validated candidate gets judged instead of stopping
+        # early (see Stage 6/7 above), a zero-approval run means the niche
+        # was judged exhaustively, not just unlucky on a small sample -
+        # explicitly requested 2026-09-24, accepted alongside
+        # niche_discovery.py's ability to generate fresh niches to replace
+        # retired ones.
+        exhausted = shortlisted_count == 0
         db.mark_niche_processed(niche.niche_id, exhausted=exhausted)
 
     except BudgetExceeded as e:
@@ -341,8 +369,8 @@ def run_for_website(website: Website) -> dict:
     db.finish_run(
         run_id, "success", candidates_found, shortlisted_count,
         error_message=(
-            f"Niche retired: 2 consecutive runs with 0 approvals "
-            f"(this run: {candidates_found} candidates, {judged_count} judged)"
+            f"Niche retired: 0 approvals from {judged_count} judged "
+            f"(out of {candidates_found} candidates found)"
             if exhausted else None
         ),
     )

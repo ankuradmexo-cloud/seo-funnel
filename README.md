@@ -12,7 +12,7 @@ several plausible ones were removed after the data came back — see
 | **Sites** | trusted-topreviews.com, dealstackpro.com, trustedtopcasinos.com (scales to 6) |
 | **Output** | 2 publishable keywords per site per day |
 | **Schedule** | GitHub Actions, `0 6,18 * * *` |
-| **Cost** | ~$0.19 per site per run · ~$0.58 per fleet dispatch · **~$35/month** |
+| **Cost** | ~$0.19 per site per run (measured 2026-09-24) · **~$35/month** at 3 sites, 2 dispatches/day |
 | **Runtime** | 15–40 min for all three sites |
 
 ## Architecture
@@ -21,9 +21,9 @@ several plausible ones were removed after the data came back — see
 GitHub Actions (cron 0 6,18 * * *)
         │
         ▼
-run_pipeline.py ──────────► DeepSeek     seeds, relevance, judge
-   8 stages                 SE Ranking   discovery (similar/questions), demand
-   15–40 min                             validation, SERP checks
+run_pipeline.py ──────────► DeepSeek     seeds, relevance, batched judge
+   8 stages                 Scrappa      discovery (autocomplete), SERP checks
+   15–40 min                SE Ranking   discovery (questions), demand validation
         │
         ▼
    Supabase (Postgres) ──────► n8n   polls status='shortlisted'
@@ -66,12 +66,12 @@ to make the next one cheaper.
 |---|---|---|---|
 | 1 | Niche selection | `niche_discovery.py` | 0–1 DeepSeek calls |
 | 2 | Seed generation | `seed_generation.py` | 1 DeepSeek call |
-| 3 | Discovery expansion | `discovery.py` | ~200 SE Ranking credits/seed (similar + questions, both 10/keyword returned) |
-| 4 | Exact dedup | `normalize.py` | free |
+| 3 | Discovery expansion | `discovery.py` | Scrappa autocomplete (flat 1 credit/call, seed × (1 + breadth 10) calls) + SE Ranking `questions` (10 credits/keyword returned) |
+| 4 | Exact dedup | `normalize.py` | free — word-order/stopword/plural/gerund-insensitive (`dedup_key`) |
 | 5 | Demand validation | `demand_validation.py` | 100 SE Ranking credits, **flat** |
 | 6 | Relevance filter | `relevance_filter.py` | 1 DeepSeek call per 100 candidates |
 | 7 | Ranking + difficulty cutoff | `orchestrator.py` | free |
-| 8 | SERP check + SEO judge | `serp_validation.py`, `seo_judge.py` | 50 SE Ranking credits (1 SERP task) + 1 DeepSeek per candidate |
+| 8 | SERP check + SEO judge | `serp_validation.py`, `seo_judge.py` | 1 Scrappa credit (SERP check) per candidate + 1 batched DeepSeek call per `JUDGE_BATCH_SIZE` (default 5) candidates |
 
 Three ordering decisions are load-bearing:
 
@@ -84,6 +84,17 @@ Three ordering decisions are load-bearing:
   sort key.
 - **Demand validation is one batched call.** SE Ranking bills `keywords/export` at
   100 credits flat for up to 5,000 keywords, so never split it.
+- **Every candidate that reaches stage 8 gets judged — no early stop.** The judge
+  loop used to break once `shortlisted_count >= MAX_KEYWORDS_PER_SITE_PER_DAY`,
+  which meant most candidates reaching the judge each run never got their real
+  demand/difficulty data persisted (found stuck at `status='deduped'`,
+  un-revisitable — 38,960 keywords affected before the fix). Now every candidate
+  is judged and its outcome is always written; `MAX_KEYWORDS_PER_SITE_PER_DAY` is
+  purely a downstream article-publishing throttle (`websites.articles_per_day`),
+  not a keyword-shortlisting cap. Judge calls are batched
+  (`JUDGE_BATCH_SIZE`, default 5 keywords/call) so this doesn't multiply DeepSeek
+  cost — verdicts are matched back by each candidate's own `keyword` field, not
+  list position.
 
 ### How the judge decides
 
@@ -106,54 +117,51 @@ approvals 62–78.
 
 | Provider | Used for | Billing |
 |---|---|---|
-| **DeepSeek** | Seed generation, niche discovery, relevance filter, SEO judge | Per token, negligible |
-| **SE Ranking** | Discovery (`similar`/`questions`/`related`), demand validation, live SERP checks | $50 = 250,000 credits ($0.0002). `export` 100 flat; `similar`/`questions`/`related` 10/keyword returned; `serp/classic` 50/task flat |
+| **DeepSeek** | Seed generation, niche discovery, relevance filter, batched SEO judge | Per token, negligible (~$0.02 for a real 150-candidate/36-call run) |
+| **Scrappa** | Discovery (`autocomplete`, primary volume source), live SERP checks | $10 = 33,000 credits ($0.0003). Flat 1 credit/call for both endpoints — ~33x cheaper per SERP check than SE Ranking's old `serp/classic` task |
+| **SE Ranking** | Discovery (`questions`, secondary precision source), demand validation | $50 = 250,000 credits ($0.0002). `export` 100 flat; `questions`/`related` 10/keyword returned |
 | **Supabase** | Postgres + PostgREST | — |
 
-SE Ranking is now the pipeline's only credit-metered provider - Scrappa was
-removed on 2026-09-21 (replaced by SE Ranking's `serp/classic` task API for
-SERP and `keywords/similar` for discovery breadth) after Scrappa started
-returning intermittent timeouts/503s in production.
+Scrappa and SE Ranking are both live, credit-metered providers as of
+2026-09-24 — a full rebuild from the brief 2026-09-21 SE-Ranking-only period
+(see [What was tried and dropped](#what-was-tried-and-dropped) for why that
+was reverted). SE Ranking's `similar` endpoint was removed entirely; SERP
+checks moved back to Scrappa project-wide, including in `article-pipeline/`.
 
 ### What it actually costs
 
-Measured from the `api_usage` table on the first full-fleet dispatch, **before**
-the Scrappa → SE Ranking migration above - kept for historical reference on
-relative per-niche cost variance, not as current pricing (the Scrappa column no
-longer applies; that spend now runs through SE Ranking's `similar` endpoint
-instead):
+Measured live end-to-end on 2026-09-24, after the rebuild below, on one real
+run (website 1, niche "Budget Travel Apps for Backpackers"), via provider
+balance deltas before/after — not estimated:
 
-| Run | Niche | Scrappa | SE Ranking | Cost |
-|---|---|---|---|---|
-| 19 | Productivity Software | 331 | 1,450 | $0.3903 |
-| 20 | Casino Payments | 245 | 270 | $0.1282 |
-| 21 | Electronics Coupons | 142 | 100 | $0.0630 |
-| | **Fleet total** | **718** | **1,820** | **$0.5816** |
+| Provider | Used | Cost |
+|---|---|---|
+| Scrappa (autocomplete + SERP checks) | 435 credits | $0.132 |
+| SE Ranking (`questions` + demand validation) | 190 credits | $0.038 |
+| DeepSeek (36 batched judge calls) | ~149k tokens | $0.020 |
+| **Total** | | **≈ $0.19** |
 
-Per-run cost varies more than 6x by niche — run 19 spent as much as the other two
-combined, because `questions` bills per keyword *returned* and that niche returns a
-lot of them.
+That run found 941 candidates, judged all 150 that reached stage 8 (no early
+stop), and shortlisted 50 — **≈$0.0038 per shortlisted keyword**.
 
-Projected at two dispatches a day (pre-migration figures, see note above):
+Projected at two dispatches a day:
 
-| Sites | Per day | Per month | SE Ranking credits/mo |
-|---|---|---|---|
-| 3 (today) | $1.16 | **~$35** | 109,200 |
-| 6 (planned) | $2.33 | **~$70** | 218,400 |
-
-Post-migration, all of the old Scrappa spend now also runs through SE Ranking,
-so actual SE Ranking credit consumption is higher than the figures above until
-re-measured at scale.
+| Sites | Per day | Per month |
+|---|---|---|
+| 3 (today) | ~$1.16 | **~$35** |
+| 6 (planned) | ~$2.33 | **~$70** |
 
 ## What was tried and dropped
 
 | Technique | Measured result | Verdict |
 |---|---|---|
-| Scrappa autocomplete | 28–31% real-volume rate; best approval yield of anything tested | **Removed 2026-09-21** — Scrappa itself became unreliable (timeouts/503s); no direct SE Ranking equivalent exists |
-| SE Ranking `similar` | Replaces autocomplete as the discovery volume driver | **New primary source** — no yield data yet, revisit `SIMILAR_LIMIT_PER_SEED` once a real batch clears the judge |
-| SE Ranking `questions` | ~93% real-volume rate — but only with short head-term seeds | **Kept** |
+| Scrappa autocomplete | 46% real-volume rate, 60.9% judge-approved once Scrappa SERP made per-check cost cheap; best cost-per-approved-keyword (~$0.0014 vs `questions`' ~$0.0041) | **Restored 2026-09-24** as primary discovery source, after a brief 2026-09-21 removal for reliability concerns that didn't reproduce on retest |
+| SE Ranking `similar` | Tried as autocomplete's 2026-09-21 replacement | **Removed 2026-09-24** — no real yield data ever materialized before autocomplete was restored |
+| SE Ranking `questions` | 95.2% real-volume rate → 65.0% judge-approved, the highest hit-rate of anything tested | **Kept** as the secondary precision source |
 | SE Ranking `related` | ~98% real-volume rate, the highest of any source, and zero approvals ever | Disabled |
 | SE Ranking `longtail` | 0% real search volume, twice | Dropped |
+| SE Ranking `serp/classic` (SERP checks) | Correct results, but ~33x more expensive per check than Scrappa's flat 1-credit `/search` (50 credits vs 1) | **Reverted to Scrappa 2026-09-24**, project-wide (both pipelines) |
+| Scrappa PAA → DeepSeek keyword rewrite | 0% real-volume rate raw, 33% after an LLM rewrite pass — still far below `questions`/`autocomplete` | Not adopted |
 | LLM bulk generation | 0–0.8% real-volume rate across four tests | Deleted |
 | Vector semantic search | More architectural complexity than retrieval value at this scale | Cut |
 | LLM semantic dedup | Exact database matching is cheaper, deterministic, auditable | Cut |
@@ -162,31 +170,32 @@ re-measured at scale.
 **The finding that outranks all of these:** niche competitiveness dominates
 technique choice. The identical pipeline returned 23% approval on *Travel
 Journaling* and 0% on *Productivity Apps for Remote Workers*. The same niche has
-produced 11 approvals in one run and 1 in another. That variance is why a niche is
-retired only after **two consecutive** zero-approval runs, and why only runs that
-completed successfully count as evidence — an infrastructure failure cannot retire
-a viable niche.
+produced 11 approvals in one run and 1 in another. That variance is why, as of
+2026-09-24, a niche is retired after its **first** zero-approval run rather than
+two consecutive ones — now that every candidate reaching the judge is actually
+judged (no early stop), a zero-approval run is a real signal instead of a
+possibly-unlucky partial sample, and `niche_discovery.py` can generate a fresh
+niche to replace a retired one. Only runs that completed successfully count as
+evidence either way — an infrastructure failure cannot retire a viable niche.
 
 ## Credit preflight
 
-Every run checks both provider balances **before calling either of them**, and
-refuses to start if one is short. SE Ranking is now the pipeline's only
-credit-metered provider — discovery, demand validation, and SERP checks all run
-through it, since Scrappa was removed on 2026-09-21.
+Every run checks all three provider balances **before calling any of them**, and
+refuses to start if one is short.
 
 | Provider | Balance endpoint | Gate |
 |---|---|---|
 | SE Ranking | `GET /v1/account/credits` | sum of subscription + addon + wallet remaining, **and** `access.can_use_data_api` |
+| Scrappa | `GET /account/usage` | usable credits remaining |
 | DeepSeek | `GET /user/balance` | USD balance and `is_available` |
 
-Both are free account-metadata reads — checking costs nothing.
+All three are free account-metadata reads — checking costs nothing.
 
-Requirements are derived from the cost dials, not hardcoded, so raising
-`SEEDS_PER_NICHE` raises the bar a run must clear. At current defaults: SE Ranking
-~11,100 credits (similar + questions + demand + per-candidate SERP checks), DeepSeek $0.10.
-(Was ~18,600 until `SIMILAR_LIMIT_PER_SEED` and `MAX_TOOL_CALLS_PER_RUN` got
-recalibrated for SE Ranking's actual per-unit cost - see their own comments
-in `src/config.py`.)
+Requirements are derived from the cost dials in `src/clients/balances.py`, not
+hardcoded, so raising `SEEDS_PER_NICHE` raises the bar a run must clear. At
+current defaults (`SEEDS_PER_NICHE=30`): SE Ranking ~4,600 credits (demand +
+`questions`), Scrappa ~530 credits (autocomplete BFS + per-candidate SERP
+checks), DeepSeek $0.10 floor.
 
 A bounced run creates **no `pipeline_runs` row** — nothing ran. The result is
 written to `system_config.credit_preflight` and the dashboard shows a
@@ -207,17 +216,18 @@ All settings are environment variables; none require a code change. See
 
 | Variable | Default | Effect |
 |---|---|---|
-| `SEEDS_PER_NICHE` | 30 | Primary cost dial. Each seed ≈ (`similar` + `questions`) × 10 SE Ranking credits. |
-| `SIMILAR_LIMIT_PER_SEED` | 5 | Discovery volume driver, replaces the old Scrappa autocomplete BFS. 10 SE Ranking credits/keyword returned - originally defaulted to 30 (matching autocomplete's old breadth) before realizing that endpoint's flat ~1-credit billing doesn't carry over; cut to 5. |
-| `QUESTIONS_LIMIT_PER_SEED` | 15 | Second cost dial. Multiplies with the first. |
-| `RELATED_LIMIT_PER_SEED` | 0 | Off. Raise to re-enable `related`. |
+| `SEEDS_PER_NICHE` | 30 | Primary cost dial. Each seed does one Scrappa autocomplete BFS (1 + 10 breadth calls, flat 1 credit each) plus one SE Ranking `questions` call (10 credits/keyword returned, up to `QUESTIONS_LIMIT_PER_SEED`). |
+| `QUESTIONS_LIMIT_PER_SEED` | 15 | SE Ranking discovery cost dial (secondary source). |
+| `RELATED_LIMIT_PER_SEED` | 0 | Off. Raise to re-enable SE Ranking `related`. |
 | `MAX_DIFFICULTY_TO_JUDGE` | 40 | Hard cutoff before the judge. 100 disables it. |
-| `MAX_KEYWORDS_PER_SITE_PER_DAY` | 2 | Publishing target; stops the judge loop. |
-| `MAX_TOOL_CALLS_PER_RUN` | 50 | DeepSeek budget - raises `BudgetExceeded`, exempt from retry. Also the worst-case cap on SE Ranking SERP checks (50 credits each); was 100 before that got expensive. |
-| `MAX_CANDIDATES_TO_JUDGE_PER_RUN` | 200 | Safety rail only, not an active filter. |
+| `MAX_KEYWORDS_PER_SITE_PER_DAY` | 2 | Downstream article-publishing throttle (`websites.articles_per_day`) — **not** a keyword-shortlisting cap; every candidate that reaches the judge is still judged. |
+| `MAX_TOOL_CALLS_PER_RUN` | 50 | DeepSeek budget - raises `BudgetExceeded`, exempt from retry. |
+| `MAX_CANDIDATES_TO_JUDGE_PER_RUN` | 200 | Real ceiling on Scrappa SERP checks (1 credit each) now that judging doesn't stop early. |
+| `JUDGE_BATCH_SIZE` | 5 | Keywords sent per DeepSeek judge call. Falls back to one-at-a-time for any keyword a batch response is missing a verdict for. |
 
-Secrets: `DEEPSEEK_API_KEY`, `SERANKING_API_KEY`, `SUPABASE_URL`,
-`SUPABASE_KEY` (service_role). Never committed — see [`.env.example`](.env.example).
+Secrets: `DEEPSEEK_API_KEY`, `SCRAPPA_API_KEY`, `SERANKING_API_KEY`,
+`SUPABASE_URL`, `SUPABASE_KEY` (service_role). Never committed — see
+[`.env.example`](.env.example).
 
 ## Database
 

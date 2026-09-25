@@ -35,8 +35,9 @@ from clients import db_client
 from clients.deepseek_client import DeepSeekClient
 from clients.page_scraper import USER_AGENT
 from clients.reddit_client import search_reddit
-from clients.seranking_client import SERankingClient
+from clients.scrappa_client import ScrappaClient
 from config import settings
+from pipeline.serp_research import research_serp
 
 MAX_QUERIES_PER_RUN = 4
 MAX_RESULTS_PER_QUERY = 10
@@ -103,7 +104,7 @@ anything not genuine.
 Return JSON matching the required schema only, same order as given."""
 
 
-def research_directories(website_id: int, seranking: SERankingClient, deepseek: DeepSeekClient) -> list[dict]:
+def research_directories(website_id: int, scrappa: ScrappaClient, deepseek: DeepSeekClient) -> list[dict]:
     wp_config = db_client.get_website_wp_config(website_id) or {}
     site_name = wp_config.get("name") or f"website {website_id}"
     categories = db_client.get_website_categories(website_id)
@@ -113,7 +114,7 @@ def research_directories(website_id: int, seranking: SERankingClient, deepseek: 
     seen_domains: set[str] = set()
     results: list[dict] = []
     for c in categories[:MAX_QUERIES_PER_RUN]:
-        serp = seranking.serp_search(f"{_query_safe(c)} submit your site directory")
+        serp = research_serp(scrappa, f"{_query_safe(c)} submit your site directory", MAX_RESULTS_PER_QUERY)
         for r in serp["top_results"][:MAX_RESULTS_PER_QUERY]:
             domain = _domain(r.get("link") or "")
             if not domain or domain in seen_domains:
@@ -153,7 +154,7 @@ def research_directories(website_id: int, seranking: SERankingClient, deepseek: 
     return opportunities
 
 
-def _find_resource_pages(website_id: int, seranking: SERankingClient, query_suffix: str) -> tuple[list[str], list[dict]]:
+def _find_resource_pages(website_id: int, scrappa: ScrappaClient, query_suffix: str) -> tuple[list[str], list[dict]]:
     """Shared discovery step for resource_page and broken_link - both are
     looking for the same kind of page (a curated "resources"/"useful
     links" list in the site's niche), just doing something different with
@@ -165,7 +166,7 @@ def _find_resource_pages(website_id: int, seranking: SERankingClient, query_suff
     seen_domains: set[str] = set()
     results: list[dict] = []
     for c in categories[:MAX_QUERIES_PER_RUN]:
-        serp = seranking.serp_search(f"{_query_safe(c)} {query_suffix}")
+        serp = research_serp(scrappa, f"{_query_safe(c)} {query_suffix}", MAX_RESULTS_PER_QUERY)
         for r in serp["top_results"][:MAX_RESULTS_PER_QUERY]:
             domain = _domain(r.get("link") or "")
             if not domain or domain in seen_domains:
@@ -206,7 +207,7 @@ anything not genuine.
 Return JSON matching the required schema only, same order as given."""
 
 
-def research_resource_pages(website_id: int, seranking: SERankingClient, deepseek: DeepSeekClient) -> list[dict]:
+def research_resource_pages(website_id: int, scrappa: ScrappaClient, deepseek: DeepSeekClient) -> list[dict]:
     wp_config = db_client.get_website_wp_config(website_id) or {}
     site_name = wp_config.get("name") or f"website {website_id}"
     published = db_client.get_published_articles(website_id, limit=1)
@@ -214,7 +215,7 @@ def research_resource_pages(website_id: int, seranking: SERankingClient, deepsee
         return []
     our_article = published[0]
 
-    categories, results = _find_resource_pages(website_id, seranking, "resources list")
+    categories, results = _find_resource_pages(website_id, scrappa, "resources list")
     if not results:
         return []
 
@@ -314,7 +315,7 @@ sound like someone who actually visited the page.
 Return JSON matching the required schema only."""
 
 
-def research_broken_links(website_id: int, seranking: SERankingClient, deepseek: DeepSeekClient) -> list[dict]:
+def research_broken_links(website_id: int, scrappa: ScrappaClient, deepseek: DeepSeekClient) -> list[dict]:
     wp_config = db_client.get_website_wp_config(website_id) or {}
     site_name = wp_config.get("name") or f"website {website_id}"
     published = db_client.get_published_articles(website_id, limit=1)
@@ -322,7 +323,7 @@ def research_broken_links(website_id: int, seranking: SERankingClient, deepseek:
         return []
     our_article = published[0]
 
-    _, results = _find_resource_pages(website_id, seranking, "resources links useful sites")
+    _, results = _find_resource_pages(website_id, scrappa, "resources links useful sites")
     if not results:
         return []
 
@@ -469,8 +470,8 @@ def main():
         if args.channel == "social":
             opportunities = research_social(args.website_id, deepseek)
         else:
-            seranking = SERankingClient()
-            opportunities = CHANNELS[args.channel](args.website_id, seranking, deepseek)
+            scrappa = ScrappaClient()
+            opportunities = CHANNELS[args.channel](args.website_id, scrappa, deepseek)
     except Exception as e:
         if args.job_id:
             db_client.finish_offpage_job(args.job_id, "failed", str(e))

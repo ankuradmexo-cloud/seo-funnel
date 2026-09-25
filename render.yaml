@@ -47,5 +47,7 @@ services:
         sync: false
       - key: DEEPSEEK_API_KEY
         sync: false
+      - key: SCRAPPA_API_KEY
+        sync: false
       - key: SERANKING_API_KEY
         sync: false

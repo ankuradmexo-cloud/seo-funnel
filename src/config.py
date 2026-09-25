@@ -10,23 +10,24 @@ class Settings:
     # ("Illegal header value b'Token ...\n'") deep inside a client call, real
     # incident against SERANKING_API_KEY.
     deepseek_api_key: str = os.environ["DEEPSEEK_API_KEY"].strip()
+    scrappa_api_key: str = os.environ["SCRAPPA_API_KEY"].strip()
     seranking_api_key: str = os.environ["SERANKING_API_KEY"].strip()
     supabase_url: str = os.environ["SUPABASE_URL"].strip()
     supabase_key: str = os.environ["SUPABASE_KEY"].strip()
 
-    # DeepSeek calls per run: 1 seed generation + up to
-    # max_candidates_to_judge_per_run SEO Judge calls. LLM bulk keyword
-    # generation was removed (0-0.8% real-volume hit rate across four tests),
-    # so this no longer needs the large headroom it did.
-    #
-    # Also doubles as the worst-case cap on SE Ranking SERP checks (one per
-    # judged candidate, see serp_validation.py) - this was fine at 100 back
-    # when Scrappa billed ~1 credit/check, but SE Ranking's serp/classic
-    # task bills 50 credits/check, a 50x jump per unit. Left at the old
-    # value, the worst case alone was 5,000 credits; halved here so the
-    # same safety margin costs proportionally less now that each check is
-    # far more expensive.
+    # DeepSeek call budget for the run (seed generation + relevance filter +
+    # judge calls). Judge calls are batched now (judge_batch_size keywords
+    # per call, see seo_judge.judge_keywords_batch), so this rarely binds in
+    # practice even with every demand-validated candidate getting judged -
+    # e.g. 45 candidates costs ~9 judge calls at batch size 5, not 45.
     max_tool_calls_per_run: int = int(os.environ.get("MAX_TOOL_CALLS_PER_RUN", 50))
+
+    # How many keywords go into one SEO Judge DeepSeek call. Revived
+    # 2026-09-24 alongside "judge every demand-validated candidate, not just
+    # until the daily target" - batching amortizes the judge's fixed system
+    # prompt (~1,850 of a call's ~2,000 tokens, measured directly) across
+    # several keywords instead of paying for it per keyword.
+    judge_batch_size: int = int(os.environ.get("JUDGE_BATCH_SIZE", 5))
     max_keywords_per_site_per_day: int = int(
         os.environ.get("MAX_KEYWORDS_PER_SITE_PER_DAY", 2)
     )
@@ -44,21 +45,11 @@ class Settings:
     # each. Set to 100 to disable this cutoff entirely.
     max_difficulty_to_judge: int = int(os.environ.get("MAX_DIFFICULTY_TO_JUDGE", 40))
 
-    # Seeds per niche. Cost scales roughly linearly with this: each seed costs
-    # (similar_limit_per_seed + questions_limit_per_seed) x 10 SE Ranking
+    # Seeds per niche. Cost scales roughly linearly with this: each seed
+    # costs ~10-11 Scrappa autocomplete calls (~$0.003-0.0033, see
+    # discovery.py's BFS) plus questions_limit_per_seed x 10 SE Ranking
     # credits. Demand validation stays one flat call regardless.
     seeds_per_niche: int = int(os.environ.get("SEEDS_PER_NICHE", 30))
-
-    # Replaces the old Scrappa autocomplete BFS as the discovery volume
-    # driver - SE Ranking's semantically-similar-keywords endpoint, a single
-    # flat call per seed instead of a multi-level BFS. Originally defaulted
-    # to 30 to match autocomplete's old breadth - a real mistake: Scrappa
-    # billed ~1 credit/call flat regardless of volume, but this endpoint
-    # bills 10 credits per RETURNED keyword, so the same number meant a 30x
-    # bigger bill for a source with zero measured yield data. Cut to 5 -
-    # still gives a real breadth signal per seed - until a real batch
-    # through the judge shows it's worth spending more on.
-    similar_limit_per_seed: int = int(os.environ.get("SIMILAR_LIMIT_PER_SEED", 5))
 
     questions_limit_per_seed: int = int(os.environ.get("QUESTIONS_LIMIT_PER_SEED", 15))
     # `related` defaults OFF: ~98% real-volume hit rate, but it returns broad

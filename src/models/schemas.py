@@ -47,7 +47,7 @@ class SeedGenerationOutput(BaseModel):
 
 class DiscoveryCandidate(BaseModel):
     keyword: str
-    source: list[Literal["similar", "questions", "related"]]
+    source: list[Literal["autocomplete", "questions", "related"]]
 
 
 class DemandMetrics(BaseModel):
@@ -81,6 +81,14 @@ class SeoJudgeOutput(BaseModel):
     score: float = Field(ge=0, le=100)
     rationale: str
     intent_cluster: str
+
+
+class BatchSeoJudgeOutput(BaseModel):
+    """Multiple keywords judged in one DeepSeek call - see
+    seo_judge.judge_keywords_batch. Each entry's own `keyword` field is
+    what matches a verdict back to its candidate, not list position - an
+    LLM batch response isn't guaranteed to preserve order or count."""
+    verdicts: list[SeoJudgeOutput]
 
 
 class SemanticExpansionOutput(BaseModel):

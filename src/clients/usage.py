@@ -8,13 +8,16 @@ of DB round trips to an already slow pipeline.
 Credit costs are provider-specific and not interchangeable:
   SE Ranking   100 credits flat for keywords/export (any batch size up to 5000)
                10 credits per RETURNED keyword for questions/related/similar
-               50 credits flat per serp/classic SERP task
+  Scrappa      1 credit per request, revived 2026-09-24 for autocomplete
+               discovery + SERP checks (~33x cheaper per SERP check than SE
+               Ranking's serp/classic task, and a proven better volume
+               driver than `similar` - see discovery.py)
   DeepSeek     billed by token, not credits - tracked as calls/tokens instead
 """
 
 SERANKING_EXPORT_CREDITS = 100
 SERANKING_CREDITS_PER_RETURNED_KEYWORD = 10
-SERANKING_SERP_CREDITS_PER_TASK = 50
+SCRAPPA_CREDITS_PER_CALL = 1
 
 
 class UsageTracker:

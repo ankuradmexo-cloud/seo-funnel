@@ -20,6 +20,7 @@ import markdown as md_lib
 from clients import db_client, wordpress_client
 from clients.deepseek_client import DeepSeekClient
 from clients.pexels_client import search_hero_image
+from clients.scrappa_client import ScrappaClient
 from clients.seranking_client import SERankingClient
 from config import settings
 from pipeline.article_strategy import build_strategy
@@ -318,12 +319,13 @@ def _run_for_keyword_inner(keyword: str, website_id: Optional[int] = None, keywo
 
     deepseek = DeepSeekClient()
     seranking = SERankingClient()
+    scrappa = ScrappaClient()
 
     started = time.monotonic()
     print(f"Run {run_id}")
 
     print("Step 1: SERP research")
-    serp = research_serp(seranking, keyword, settings.competitor_count)
+    serp = research_serp(scrappa, keyword, settings.competitor_count)
     log_step("serp_research", serp)
 
     print("Step 2: Search intent detection")
@@ -359,6 +361,7 @@ def _run_for_keyword_inner(keyword: str, website_id: Optional[int] = None, keywo
             "elapsed_seconds": round(elapsed, 1),
             "deepseek_calls": deepseek.calls_made,
             "seranking_calls": seranking.calls_made,
+            "scrappa_calls": scrappa.calls_made,
             "log_dir": str(run_dir),
         }
         (run_dir / "_run_summary.json").write_text(json.dumps(run_summary, indent=2))
@@ -503,6 +506,7 @@ def _run_for_keyword_inner(keyword: str, website_id: Optional[int] = None, keywo
         "deepseek_calls": deepseek.calls_made,
         "deepseek_tokens": deepseek.total_tokens,
         "seranking_calls": seranking.calls_made,
+        "scrappa_calls": scrappa.calls_made,
         "search_intent": search_intent.get("primary_intent"),
         "reddit_threads_found": len(reddit_threads),
         "twitter_threads_found": len(twitter_threads),
@@ -550,7 +554,7 @@ def _run_for_keyword_inner(keyword: str, website_id: Optional[int] = None, keywo
         "interlinking": interlinking_report,
     }
     run_summary["quality_gate"] = evaluate_run(run_summary)
-    run_summary["cost"] = compute_run_cost(deepseek.call_log, seranking.credits_used)
+    run_summary["cost"] = compute_run_cost(deepseek.call_log, seranking.credits_used, scrappa.calls_made)
 
     print("Step 15: WordPress publish")
     wp_result = _publish_to_wordpress(
@@ -572,7 +576,7 @@ def _run_for_keyword_inner(keyword: str, website_id: Optional[int] = None, keywo
     print(
         f"Cost: ${cost['total_cost_usd']:.4f} total "
         f"(DeepSeek ${cost['deepseek']['cost_usd']:.4f} / {cost['deepseek']['total_tokens']} tokens, "
-        f"SE Ranking ${cost['seranking']['cost_usd']:.4f})"
+        f"SE Ranking ${cost['seranking']['cost_usd']:.4f}, Scrappa ${cost['scrappa']['cost_usd']:.4f})"
     )
     print(f"Markdown: {md_output_path}")
     print(f"HTML (open in browser, select all, copy, paste into the editor): {html_output_path}")

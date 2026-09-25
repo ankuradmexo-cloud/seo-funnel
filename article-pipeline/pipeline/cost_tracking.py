@@ -18,8 +18,11 @@ Pricing sources:
   card. If DeepSeek's dashboard shows an exact per-token rate for this
   account, use that instead and delete this whole approximation.
 - SE Ranking: $50 = 250,000 credits; keywords/export is a flat 100 credits
-  regardless of batch size, serp/classic tasks are a flat 50 credits/task
-  (both measured directly against the account's own credit counter).
+  regardless of batch size (measured directly against the account's own
+  credit counter).
+- Scrappa: $10 = 33,000 credits, 1 credit/request flat - back in use as of
+  2026-09-24 for SERP research (measured ~33x cheaper per check than SE
+  Ranking's serp/classic task).
 """
 
 DEEPSEEK_CACHE_HIT_INPUT_PER_MILLION = 0.0034
@@ -27,6 +30,8 @@ DEEPSEEK_CACHE_MISS_INPUT_PER_MILLION = 0.1035
 DEEPSEEK_OUTPUT_PER_MILLION = 0.3105
 
 SERANKING_COST_PER_CREDIT = 50 / 250_000
+SCRAPPA_COST_PER_CREDIT = 10 / 33_000
+SCRAPPA_CREDITS_PER_CALL = 1
 
 
 def _deepseek_call_cost(prompt_tokens: int, completion_tokens: int, cache_hit_tokens: int) -> float:
@@ -43,7 +48,7 @@ def _deepseek_call_cost(prompt_tokens: int, completion_tokens: int, cache_hit_to
     )
 
 
-def compute_run_cost(deepseek_call_log: list[dict], seranking_credits_used: int) -> dict:
+def compute_run_cost(deepseek_call_log: list[dict], seranking_credits_used: int, scrappa_calls: int = 0) -> dict:
     """deepseek_call_log is DeepSeekClient.call_log after a run - one entry
     per actual API call (schema-validation retries and truncation retries
     each count as their own entry, since they're separately-billed calls).
@@ -79,6 +84,7 @@ def compute_run_cost(deepseek_call_log: list[dict], seranking_credits_used: int)
         deepseek_cost += call_cost
 
     seranking_cost = seranking_credits_used * SERANKING_COST_PER_CREDIT
+    scrappa_cost = scrappa_calls * SCRAPPA_CREDITS_PER_CALL * SCRAPPA_COST_PER_CREDIT
 
     by_label_rounded = {
         label: {
@@ -93,7 +99,7 @@ def compute_run_cost(deepseek_call_log: list[dict], seranking_credits_used: int)
     }
 
     return {
-        "total_cost_usd": round(deepseek_cost + seranking_cost, 5),
+        "total_cost_usd": round(deepseek_cost + seranking_cost + scrappa_cost, 5),
         "deepseek": {
             "calls": len(deepseek_call_log),
             "prompt_tokens": deepseek_prompt_tokens,
@@ -103,5 +109,6 @@ def compute_run_cost(deepseek_call_log: list[dict], seranking_credits_used: int)
             "cost_usd": round(deepseek_cost, 5),
         },
         "seranking": {"credits": seranking_credits_used, "cost_usd": round(seranking_cost, 5)},
+        "scrappa": {"calls": scrappa_calls, "cost_usd": round(scrappa_cost, 5)},
         "deepseek_by_label": by_label_rounded,
     }
