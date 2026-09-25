@@ -16,7 +16,17 @@ import json
 import sys
 
 from clients import db_client
+from config import settings
 from orchestrator import run_for_keyword
+
+# Bounded extra attempts per site beyond its daily quota, so a site whose
+# candidates are all failing the quality gate can't burn unlimited real
+# money (each attempt costs real DeepSeek/SE Ranking spend even on a gate
+# fail) in a single scheduler run. Measured 2026-09-24: dealstackpro's only
+# two picked keywords both failed the gate (0 relevant competitors found for
+# either), and with no fallback the site published nothing that day despite
+# having 20 other shortlisted keywords sitting unused.
+MAX_EXTRA_ATTEMPTS_PER_WEBSITE = 3
 
 
 def main():
@@ -52,19 +62,49 @@ def main():
         if remaining == 0:
             continue
 
-        keywords = db_client.get_shortlisted_keywords_for_articles(website_id, remaining)
-        if not keywords:
-            print("  No shortlisted keywords available for this site right now.")
-            continue
+        # Keeps pulling fresh shortlisted keywords as long as the quota
+        # isn't met, instead of trying exactly `remaining` candidates once
+        # and giving up for the day if any fail the quality gate. A failed
+        # keyword reverts to 'shortlisted' (release_keyword) and stays
+        # top-ranked, so attempted_ids is what stops it being re-selected
+        # immediately within this same run.
+        attempted_ids: set[int] = set()
+        extra_attempts = 0
+        published_this_site = 0
 
-        for kw in keywords:
-            print(f"  Running: {kw['keyword']!r} (keyword_id={kw['keyword_id']})")
-            try:
-                summary = run_for_keyword(kw["keyword"], website_id=website_id, keyword_id=kw["keyword_id"])
-                results.append({"website_id": website_id, "keyword": kw["keyword"], "summary": summary})
-            except Exception as e:  # noqa: BLE001 - one bad keyword must not abort the whole day's run
-                print(f"  FAILED: {kw['keyword']!r} - {e}")
-                results.append({"website_id": website_id, "keyword": kw["keyword"], "error": str(e)})
+        while remaining > 0 and extra_attempts <= MAX_EXTRA_ATTEMPTS_PER_WEBSITE:
+            keywords = db_client.get_shortlisted_keywords_for_articles(
+                website_id, remaining, exclude_ids=attempted_ids
+            )
+            if not keywords:
+                if attempted_ids:
+                    print("  No more unused shortlisted keywords available for this site.")
+                else:
+                    print("  No shortlisted keywords available for this site right now.")
+                break
+
+            for kw in keywords:
+                attempted_ids.add(kw["keyword_id"])
+                print(f"  Running: {kw['keyword']!r} (keyword_id={kw['keyword_id']})")
+                try:
+                    summary = run_for_keyword(kw["keyword"], website_id=website_id, keyword_id=kw["keyword_id"])
+                    results.append({"website_id": website_id, "keyword": kw["keyword"], "summary": summary})
+                    if summary.get("wp_publish_status") == settings.wp_publish_status:
+                        published_this_site += 1
+                        remaining -= 1
+                    else:
+                        extra_attempts += 1
+                except Exception as e:  # noqa: BLE001 - one bad keyword must not abort the whole day's run
+                    print(f"  FAILED: {kw['keyword']!r} - {e}")
+                    results.append({"website_id": website_id, "keyword": kw["keyword"], "error": str(e)})
+                    extra_attempts += 1
+
+                if remaining == 0 or extra_attempts > MAX_EXTRA_ATTEMPTS_PER_WEBSITE:
+                    break
+
+        if remaining > 0 and published_this_site == 0 and attempted_ids:
+            print(f"  Gave up after {len(attempted_ids)} attempt(s) - "
+                  f"{MAX_EXTRA_ATTEMPTS_PER_WEBSITE} extra-attempt cap reached or no candidates left.")
 
     print("\n--- Scheduler run summary ---")
     print(json.dumps(

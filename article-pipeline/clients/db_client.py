@@ -194,18 +194,26 @@ def release_keyword(keyword_id: int) -> None:
     _client.table("keywords").update({"status": "shortlisted"}).eq("keyword_id", keyword_id).execute()
 
 
-def get_shortlisted_keywords_for_articles(website_id: int, limit: int) -> list[dict]:
+def get_shortlisted_keywords_for_articles(
+    website_id: int, limit: int, exclude_ids: Optional[list[int]] = None
+) -> list[dict]:
+    """exclude_ids lets the scheduler pull a fresh batch after a quality-gate
+    fail (see run_scheduler.py) - without it, a failed keyword reverts to
+    'shortlisted' (release_keyword) and, being still top-ranked, would just
+    be selected again immediately on the next query in the same run."""
     if _client is None or limit <= 0:
         return []
-    resp = (
+    query = (
         _client.table("keywords")
         .select("keyword_id, keyword")
         .eq("website_id", website_id)
         .eq("status", "shortlisted")
         .order("judge_score", desc=True)
         .limit(limit)
-        .execute()
     )
+    if exclude_ids:
+        query = query.not_.in_("keyword_id", list(exclude_ids))
+    resp = query.execute()
     return resp.data
 
 
