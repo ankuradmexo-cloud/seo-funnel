@@ -15,6 +15,7 @@ from src.pipeline.discovery import discover_keywords
 from src.pipeline.normalize import normalize_keyword, dedup_key, exact_dedup
 from src.pipeline.demand_validation import validate_demand
 from src.pipeline.relevance_filter import filter_relevant
+from src.pipeline.semantic_dedup import semantic_dedup
 from src.pipeline.serp_validation import check_serp
 from src.pipeline.seo_judge import judge_keywords_batch
 
@@ -134,10 +135,10 @@ def run_for_website(website: Website) -> dict:
             {"survivor_count": len(survivors), "dropped": len(raw_candidates) - len(survivors)},
         )
 
-        # Dedup is exact-match only (Stage 3, above) - no LLM semantic pass.
-        # Every survivor is "kept" directly; the DB's own
-        # unique(website_id, normalized_keyword) constraint is the only other
-        # backstop, enforced automatically by upsert_keyword below.
+        # Stage 3's exact_dedup is word-order/stemmed matching only - every
+        # survivor is "kept" directly here. The LLM semantic dedup pass runs
+        # later, after demand validation (see semantic_dedup call below), so
+        # it has real search volume to pick a representative from each group.
         kept: list[str] = survivors
         rows_by_keyword: dict[str, dict] = {}
 
@@ -194,6 +195,40 @@ def run_for_website(website: Website) -> dict:
                  "sample_dropped": [k for k in has_data if k not in set(relevant)][:20]},
             )
 
+            # Semantic dedup. Exact_dedup (Stage 3) only catches word-order/
+            # plural/gerund variants - it can't see that "solo travel tips",
+            # "solo travel tips for beginners" and "solo travel tips for
+            # introverts" would all produce the same article. This LLM pass
+            # catches that: within each proposed group the highest-volume
+            # keyword survives (real volume is known now, post demand
+            # validation) and the rest are marked rejected, not deleted -
+            # see semantic_dedup.py for why this is a separate mechanism from
+            # normalize.py's deterministic dedup rather than a replacement.
+            deduped, dup_pairs = semantic_dedup(
+                deepseek, website.category, niche.name, relevant,
+                {c: demand_by_keyword[c].search_volume or 0 for c in relevant},
+            )
+            if dup_pairs:
+                db.upsert_keywords_bulk(
+                    [
+                        {
+                            "website_id": website.website_id,
+                            "niche_id": niche.niche_id,
+                            "keyword": dup_kw,
+                            "normalized_keyword": normalize_keyword(dup_kw),
+                            "status": "rejected",
+                            "judge_rationale": f"[auto] semantic duplicate of {kept_kw!r} (LLM dedup)",
+                            "last_updated": _now(),
+                        }
+                        for dup_kw, kept_kw in dup_pairs
+                    ]
+                )
+            _log(
+                website.website_id, None, "semantic_dedup",
+                {"candidates_in": len(relevant)},
+                {"kept": len(deduped), "dropped": len(dup_pairs), "pairs": dup_pairs[:30]},
+            )
+
             # Rank by real data before spending any SERP/LLM calls.
             #
             # Sorting difficulty-ascending (the previous approach) was actively
@@ -203,19 +238,28 @@ def run_for_website(website: Website) -> dict:
             # In run 16 the one approved keyword ranked #12 that way; under
             # volume-descending it ranks #5.
             #
-            # Difficulty is applied as a cutoff instead of a sort key - a
-            # low-authority site does not win difficulty>40 terms, and every
-            # such candidate in run 16 was judged and rejected.
-            too_hard = [c for c in relevant
+            # Difficulty and volume are both applied as cutoffs instead of
+            # sort keys - a low-authority site does not win difficulty>40
+            # terms (every such candidate in run 16 was judged and rejected),
+            # and a keyword below min_search_volume_to_judge doesn't justify
+            # a dedicated article regardless of how winnable it looks
+            # (measured 2026-09-25: 24 of 100 shortlisted keywords had
+            # volume<=20 with no code-level floor to stop them).
+            too_hard = [c for c in deduped
                         if (demand_by_keyword[c].difficulty or 100) > settings.max_difficulty_to_judge]
-            winnable = [c for c in relevant if c not in set(too_hard)]
+            too_low_volume = [c for c in deduped
+                               if (demand_by_keyword[c].search_volume or 0) < settings.min_search_volume_to_judge]
+            excluded = set(too_hard) | set(too_low_volume)
+            winnable = [c for c in deduped if c not in excluded]
             ranked = sorted(winnable, key=lambda c: -(demand_by_keyword[c].search_volume or 0))
             candidates_to_judge = ranked[: settings.max_candidates_to_judge_per_run]
             _log(
                 website.website_id, None, "candidate_ranking",
-                {"relevant_count": len(relevant),
-                 "difficulty_cutoff": settings.max_difficulty_to_judge},
+                {"relevant_count": len(deduped),
+                 "difficulty_cutoff": settings.max_difficulty_to_judge,
+                 "min_volume_cutoff": settings.min_search_volume_to_judge},
                 {"winnable": len(winnable), "dropped_too_hard": len(too_hard),
+                 "dropped_too_low_volume": len(too_low_volume),
                  "selected": candidates_to_judge[:60],
                  "cap": settings.max_candidates_to_judge_per_run},
             )

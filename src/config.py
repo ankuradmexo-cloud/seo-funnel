@@ -45,6 +45,15 @@ class Settings:
     # each. Set to 100 to disable this cutoff entirely.
     max_difficulty_to_judge: int = int(os.environ.get("MAX_DIFFICULTY_TO_JUDGE", 40))
 
+    # Candidates below this real search volume never reach the judge, even if
+    # the judge would score them well - a low-volume keyword doesn't justify
+    # a dedicated article regardless of how winnable it looks. Measured
+    # 2026-09-25: 24 of 100 shortlisted keywords had volume<=20 (autocomplete's
+    # long-tail expansion surfaces a lot of these), the judge approving them on
+    # difficulty/SERP fit alone with no volume floor in code. Set to 0 to
+    # disable this cutoff entirely.
+    min_search_volume_to_judge: int = int(os.environ.get("MIN_SEARCH_VOLUME_TO_JUDGE", 30))
+
     # Seeds per niche. Cost scales roughly linearly with this: each seed
     # costs ~10-11 Scrappa autocomplete calls (~$0.003-0.0033, see
     # discovery.py's BFS) plus questions_limit_per_seed x 10 SE Ranking

@@ -70,7 +70,8 @@ to make the next one cheaper.
 | 4 | Exact dedup | `normalize.py` | free — word-order/stopword/plural/gerund-insensitive (`dedup_key`) |
 | 5 | Demand validation | `demand_validation.py` | 100 SE Ranking credits, **flat** |
 | 6 | Relevance filter | `relevance_filter.py` | 1 DeepSeek call per 100 candidates |
-| 7 | Ranking + difficulty cutoff | `orchestrator.py` | free |
+| 6.5 | Semantic dedup | `semantic_dedup.py` | 1 DeepSeek call per 100 candidates |
+| 7 | Ranking + difficulty/volume cutoff | `orchestrator.py` | free |
 | 8 | SERP check + SEO judge | `serp_validation.py`, `seo_judge.py` | 1 Scrappa credit (SERP check) per candidate + 1 batched DeepSeek call per `JUDGE_BATCH_SIZE` (default 5) candidates |
 
 Three ordering decisions are load-bearing:
@@ -84,6 +85,23 @@ Three ordering decisions are load-bearing:
   sort key.
 - **Demand validation is one batched call.** SE Ranking bills `keywords/export` at
   100 credits flat for up to 5,000 keywords, so never split it.
+- **Semantic dedup runs after demand validation, before the difficulty/volume
+  cutoffs.** `normalize.py`'s `exact_dedup` (Stage 3) only catches word-order,
+  stopword, plural, and gerund variants deterministically — it cannot see that
+  "solo travel tips", "solo travel tips for beginners", and "solo travel tips
+  for introverts" would all produce the same article, or that "are hotels
+  cheaper last minute" and "are hotel rooms cheaper last minute" are the same
+  search. `semantic_dedup.py` catches these with an LLM pass, deliberately
+  *after* demand validation so each proposed group can be resolved by keeping
+  the highest-volume keyword rather than an arbitrary pick. This is the one
+  LLM-based dedup mechanism in the pipeline — see
+  [What was tried and dropped](#what-was-tried-and-dropped) for why exact
+  matching is still the primary mechanism and this is a deliberate, narrower
+  supplement, not a replacement: only keywords echoed back exactly are
+  trusted, every dropped keyword is marked `rejected` (not deleted) with which
+  keyword it duplicates, and the prompt defaults to *not* grouping when unsure
+  (a missed duplicate costs one extra article; a false-positive group silently
+  throws away a real long-tail opportunity).
 - **Every candidate that reaches stage 8 gets judged — no early stop.** The judge
   loop used to break once `shortlisted_count >= MAX_KEYWORDS_PER_SITE_PER_DAY`,
   which meant most candidates reaching the judge each run never got their real
@@ -164,7 +182,9 @@ Projected at two dispatches a day:
 | Scrappa PAA → DeepSeek keyword rewrite | 0% real-volume rate raw, 33% after an LLM rewrite pass — still far below `questions`/`autocomplete` | Not adopted |
 | LLM bulk generation | 0–0.8% real-volume rate across four tests | Deleted |
 | Vector semantic search | More architectural complexity than retrieval value at this scale | Cut |
-| LLM semantic dedup | Exact database matching is cheaper, deterministic, auditable | Cut |
+| LLM semantic dedup (as the *only* dedup mechanism) | Exact database matching is cheaper, deterministic, auditable | Cut — but reintroduced 2026-09-25 as a narrower *second* pass, see below |
+| LLM semantic dedup (as a *second* pass after exact_dedup) | Caught 9 real synonym/rephrasing duplicates exact_dedup structurally can't see (e.g. "solo travel tips for beginners" collapsing into "solo travel tips", "are hotels cheaper last minute" into "are hotel rooms cheaper last minute"), zero false positives on a 76-keyword retroactive backfill | **Added 2026-09-25** as `semantic_dedup.py` — deterministic dedup stays the primary mechanism (runs first, free); this only handles what it can't |
+| No volume floor before the judge | 24 of 100 shortlisted keywords had `search_volume<=20` — the judge was approving thin, low-value keywords on SERP/difficulty fit alone | **Fixed 2026-09-25** — `MIN_SEARCH_VOLUME_TO_JUDGE` (default 30) now hard-cuts before the judge, same mechanism as the existing difficulty cutoff |
 | Semantic expansion | Expected to raise yield materially | **Deferred** — scaffolding retained |
 
 **The finding that outranks all of these:** niche competitiveness dominates
@@ -220,6 +240,7 @@ All settings are environment variables; none require a code change. See
 | `QUESTIONS_LIMIT_PER_SEED` | 15 | SE Ranking discovery cost dial (secondary source). |
 | `RELATED_LIMIT_PER_SEED` | 0 | Off. Raise to re-enable SE Ranking `related`. |
 | `MAX_DIFFICULTY_TO_JUDGE` | 40 | Hard cutoff before the judge. 100 disables it. |
+| `MIN_SEARCH_VOLUME_TO_JUDGE` | 30 | Hard cutoff before the judge. 0 disables it. |
 | `MAX_KEYWORDS_PER_SITE_PER_DAY` | 2 | Downstream article-publishing throttle (`websites.articles_per_day`) — **not** a keyword-shortlisting cap; every candidate that reaches the judge is still judged. |
 | `MAX_TOOL_CALLS_PER_RUN` | 50 | DeepSeek budget - raises `BudgetExceeded`, exempt from retry. |
 | `MAX_CANDIDATES_TO_JUDGE_PER_RUN` | 200 | Real ceiling on Scrappa SERP checks (1 credit each) now that judging doesn't stop early. |
