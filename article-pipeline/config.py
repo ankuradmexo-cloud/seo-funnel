@@ -20,6 +20,7 @@ class Settings:
     # incident against SERANKING_API_KEY.
     deepseek_api_key: str = os.environ["DEEPSEEK_API_KEY"].strip()
     seranking_api_key: str = os.environ["SERANKING_API_KEY"].strip()
+    scrappa_api_key: str = os.environ["SCRAPPA_API_KEY"].strip()
 
     # How many top organic results to treat as competitors. Raised from 10 to
     # 20 - a single SERP page (~9-10 organic results) routinely has several
