@@ -18,6 +18,7 @@ import re
 from clients import wordpress_client
 from clients.deepseek_client import DeepSeekClient
 from models import InternalLinkingResult
+from pipeline.interlinking import anchor_is_acceptable
 
 SYSTEM_PROMPT = """A brand-new article was just published on this website. You are choosing ONE \
 place in an OLDER, already-live article where mentioning the new one would make sense to a \
@@ -53,10 +54,19 @@ def backlink_from_older_article(
     if not proposed or proposed[0]["url"] != new_article_url:
         return old_article_html, False
 
+    # Same gate as interlinking.py - this path writes straight to live posts
+    # and previously had no relevance check at all.
+    if not anchor_is_acceptable(proposed[0]["anchor_text"], new_article_title, new_article_url):
+        return old_article_html, False
+
     match = re.search(re.escape(proposed[0]["anchor_text"]), old_article_html, re.IGNORECASE)
     if not match:
         return old_article_html, False
     idx, matched_text = match.start(), match.group(0)
+
+    first_h2 = old_article_html.lower().find("<h2")
+    if first_h2 != -1 and idx < first_h2:
+        return old_article_html, False
 
     # A plain substring match on real HTML can land mid-tag or inside an
     # existing link's attributes - refuse rather than corrupt markup.

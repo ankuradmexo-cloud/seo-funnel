@@ -83,6 +83,21 @@ def _is_topically_related(anchor: str, dest_title: str, dest_url: str) -> bool:
     return bool(_topic_words(anchor) & _topic_words(f"{dest_title} {slug}"))
 
 
+MAX_ANCHOR_WORDS = 6
+
+
+def anchor_is_acceptable(anchor: str, dest_title: str, dest_url: str) -> bool:
+    """Single gate every internal-link insertion path must pass (interlinking
+    here, backlinking.py for older posts): a short phrase, not a sentence, that
+    shares a real topic word with the destination. Found on live posts: whole
+    sentences as anchors, and links like "airplane mode" -> a printable
+    planner article, that no prompt rule stopped."""
+    words = anchor.split()
+    if not words or len(words) > MAX_ANCHOR_WORDS or anchor.rstrip().endswith((".", "!", "?")):
+        return False
+    return _is_topically_related(anchor, dest_title, dest_url)
+
+
 def _find_anchor(haystack: str, anchor: str) -> tuple[int, str]:
     """Case-insensitive search that still returns the ACTUAL substring and
     its casing from haystack (never the LLM's own casing of the anchor) -
@@ -127,7 +142,7 @@ def insert_internal_links(
         if link["url"] not in valid_urls:
             report["links_skipped_bad_url"] += 1
             continue
-        if not _is_topically_related(link["anchor_text"], title_by_url[link["url"]], link["url"]):
+        if not anchor_is_acceptable(link["anchor_text"], title_by_url[link["url"]], link["url"]):
             report["links_skipped_irrelevant"] += 1
             continue
         idx, matched_text = _find_anchor(updated, link["anchor_text"])

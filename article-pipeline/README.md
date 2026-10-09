@@ -11,8 +11,12 @@ Beyond writing the article, a run can now also (when `--website-id` is
 given and `SUPABASE_URL`/`SUPABASE_KEY` are set - see `config.py`):
 - **Interlink** to already-published articles on the same WordPress site
   (`pipeline/interlinking.py`). Links are only inserted when the anchor shares
-  a real topic word with the destination article and never in the intro
-  (before the first `##` heading) - the LLM alone was forcing weak matches.
+  a real topic word with the destination article, is a short phrase (max 6
+  words, not a sentence), and never sits in the intro (before the first `##`
+  heading) - the LLM alone was forcing weak matches. The same gate
+  (`anchor_is_acceptable`) covers `pipeline/backlinking.py`, which edits live
+  older posts. `python tools/audit_internal_links.py` re-scans every live page
+  read-only and lists links that fail it.
 - **Publish** the article to that site via the WordPress REST API,
   including a downloaded-and-resized (not hotlinked) 1200x600 featured
   image with a custom filename/alt text, and SEO meta title/description
