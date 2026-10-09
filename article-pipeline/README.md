@@ -10,7 +10,9 @@ project's Supabase database (`website_id`/`keyword_id`, the
 Beyond writing the article, a run can now also (when `--website-id` is
 given and `SUPABASE_URL`/`SUPABASE_KEY` are set - see `config.py`):
 - **Interlink** to already-published articles on the same WordPress site
-  (`pipeline/interlinking.py`).
+  (`pipeline/interlinking.py`). Links are only inserted when the anchor shares
+  a real topic word with the destination article and never in the intro
+  (before the first `##` heading) - the LLM alone was forcing weak matches.
 - **Publish** the article to that site via the WordPress REST API,
   including a downloaded-and-resized (not hotlinked) 1200x600 featured
   image with a custom filename/alt text, and SEO meta title/description
