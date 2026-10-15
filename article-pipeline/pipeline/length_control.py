@@ -117,6 +117,19 @@ def retention(before: str, after: str) -> float:
     return len(original & salient_terms(after)) / len(original)
 
 
+_FAQ_HEADING_MARKERS = ("frequently asked question", "faq")
+
+
+def is_faq_heading(heading: str) -> bool:
+    """FAQ question headings are a hard requirement (a FAQ with no question
+    labels is unusable), so unlike ordinary subheadings they are exempt from
+    both the competitor heading-count trim and the words-per-subheading
+    budget. Found on a live post: the heading trim cut a FAQ's four
+    questions to zero because that section had the most subheadings."""
+    h = heading.lower()
+    return any(m in h for m in _FAQ_HEADING_MARKERS)
+
+
 def subheading_budget(target_words: int, requested: int = 3) -> int:
     """The cap is however many subheadings the outline actually asked for
     (`requested`), reduced only if the section's own word target genuinely

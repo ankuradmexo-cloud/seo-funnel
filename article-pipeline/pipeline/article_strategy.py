@@ -37,7 +37,7 @@ from pipeline.competitor_scraping import (
     compute_competitor_stats,
     format_competitors_for_prompt,
 )
-from pipeline.length_control import ensure_exact_phrase
+from pipeline.length_control import ensure_exact_phrase, is_faq_heading
 
 _SHARED_PROMPT = """Design an article outline for the target keyword using every research input \
 provided: the full competitor content and structure, the core topics competitors consistently \
@@ -241,8 +241,16 @@ def _trim_subheadings(sections: list[dict], excess: int) -> None:
     """Removes `excess` subheadings total, from the sections with the most
     first. Unlike the old version, this can cut a section to zero
     subheadings - its own section heading still counts as one heading, so
-    zero subheadings doesn't mean zero headings for that section."""
-    order = sorted(range(len(sections)), key=lambda i: -len(sections[i].get("subheadings") or []))
+    zero subheadings doesn't mean zero headings for that section.
+
+    FAQ sections are never trimmed: they usually have the most subheadings
+    (one per question), so "most first" used to wipe out every FAQ question
+    whenever the competitor heading budget was exceeded. If only FAQ
+    headings remain to cut, the article stays over budget instead."""
+    order = sorted(
+        (i for i in range(len(sections)) if not is_faq_heading(sections[i]["heading"])),
+        key=lambda i: -len(sections[i].get("subheadings") or []),
+    )
     for i in order:
         if excess <= 0:
             break
@@ -292,9 +300,6 @@ def _pad_headings(
     return outline
 
 
-_FAQ_HEADING_MARKERS = ("frequently asked question", "faq")
-
-
 def _backfill_faq_subheadings(outline: dict, community_research: dict) -> None:
     """Deterministic backstop for the prompt instruction above - measured
     directly: a FAQ section written as flowing paragraphs with zero
@@ -306,8 +311,7 @@ def _backfill_faq_subheadings(outline: dict, community_research: dict) -> None:
     if not questions:
         return
     for s in outline["sections"]:
-        heading_lower = s["heading"].lower()
-        if any(marker in heading_lower for marker in _FAQ_HEADING_MARKERS) and not s.get("subheadings"):
+        if is_faq_heading(s["heading"]) and not s.get("subheadings"):
             s["subheadings"] = list(questions)
 
 
@@ -428,6 +432,9 @@ def build_strategy(
         for s in outline["sections"]:
             if not s.get("target_paragraph_count"):
                 s["target_paragraph_count"] = max(1, round(s["target_word_count"] / 90))
+
+    # Last line of defence - re-assert after every trim/pad step above.
+    _backfill_faq_subheadings(outline, community_research)
 
     outline["length_target_reliable"] = hard_targets["reliable"]
     outline["length_target_sample_size"] = hard_targets["sample_size"]

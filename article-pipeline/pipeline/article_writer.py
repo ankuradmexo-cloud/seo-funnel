@@ -45,6 +45,7 @@ from pipeline.length_control import (
     salient_terms,
     simplify_for_readability,
     subheading_budget,
+    is_faq_heading,
 )
 
 _SHARED_RULES = """Write naturally for a human reader first - clear, specific, useful.
@@ -108,6 +109,8 @@ def _max_tokens_for(target_words: int) -> int:
 
 def _assigned_subheadings(section: dict) -> list:
     requested = section.get("subheadings") or []
+    if is_faq_heading(section["heading"]):
+        return list(requested)
     n = subheading_budget(section["target_word_count"], requested=len(requested))
     return requested[:n]
 
