@@ -310,7 +310,10 @@ See [DEPLOY.md](DEPLOY.md) for the full runbook. Summary:
 - **API** → Render free web service ([`render.yaml`](render.yaml)). Spins down when
   idle, so the dashboard's first load after a quiet period takes ~50s.
 - **Dashboard** → Vercel, Root Directory `dashboard`, `NEXT_PUBLIC_API_URL` set to
-  the Render URL with no trailing slash and no `/api`.
+  the Render URL with no trailing slash and no `/api`. Also set `DASHBOARD_PASSWORD`
+  (and optionally `DASHBOARD_USER`, default `admin`): `dashboard/middleware.ts` puts the
+  whole UI behind HTTP Basic Auth and returns 503 in production if the password is unset.
+  This protects the dashboard pages only; the Render API itself is still reachable directly.
 
 Two failure modes worth knowing before they bite:
 
