@@ -101,20 +101,19 @@ def record_published_article(
     website_id: int, keyword_id: Optional[int], title: str, slug: str,
     wp_post_id: Optional[int], wp_post_url: Optional[str],
     quality_gate_verdict: Optional[str] = None, cost_usd: Optional[float] = None,
-    hero_image_url: Optional[str] = None,
+    hero_image_url: Optional[str] = None, published_at: Optional[str] = None,
 ) -> Optional[dict]:
     if _client is None:
         return None
-    resp = (
-        _client.table("published_articles")
-        .insert({
+    row = {
             "website_id": website_id, "keyword_id": keyword_id, "title": title,
             "slug": slug, "wp_post_id": wp_post_id, "wp_post_url": wp_post_url,
             "quality_gate_verdict": quality_gate_verdict, "cost_usd": cost_usd,
             "hero_image_url": hero_image_url,
-        })
-        .execute()
-    )
+    }
+    if published_at:
+        row["published_at"] = published_at
+    resp = _client.table("published_articles").insert(row).execute()
     if keyword_id is not None:
         _client.table("keywords").update(
             {"status": "published", "target_url": wp_post_url}

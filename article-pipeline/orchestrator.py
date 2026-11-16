@@ -176,7 +176,7 @@ def _wp_body_html(article_markdown: str, title: str, image: Optional[dict]) -> s
 def _publish_to_wordpress(
     website_id: Optional[int], keyword_id: Optional[int], slug: str, outline: dict, article_markdown: str,
     hero_image: Optional[dict], quality_gate: dict, cost_usd: float, interlinking_candidates: list[dict],
-    deepseek: DeepSeekClient, log_step,
+    deepseek: DeepSeekClient, log_step, publish_date: Optional[str] = None,
 ) -> dict:
     """Publishes (or explains why it didn't) - never raises, since a
     publish failure must not take down a run that otherwise produced a good
@@ -221,7 +221,7 @@ def _publish_to_wordpress(
     post = wordpress_client.create_post(
         wp_config, outline["title"], html_content, outline["meta_description"],
         media_id, status=settings.wp_publish_status, slug=slug,
-        category_id=category_id, author_id=author_id,
+        category_id=category_id, author_id=author_id, publish_date=publish_date,
     )
     log_step("wordpress_publish", post or {"failed": True})
     if not post:
@@ -238,7 +238,7 @@ def _publish_to_wordpress(
     db_client.record_published_article(
         website_id, keyword_id, outline["title"], post["slug"], post["id"], post["link"],
         quality_gate_verdict=quality_gate["verdict"], cost_usd=cost_usd,
-        hero_image_url=(hero_image or {}).get("url"),
+        hero_image_url=(hero_image or {}).get("url"), published_at=publish_date,
     )
 
     older_candidates = [c for c in interlinking_candidates if c.get("wp_post_id") != post["id"]]
@@ -270,7 +270,10 @@ def _search_hero_image_with_fallback(image_search_terms: str, keyword: str) -> O
     return search_hero_image(keyword)
 
 
-def run_for_keyword(keyword: str, website_id: Optional[int] = None, keyword_id: Optional[int] = None) -> dict:
+def run_for_keyword(
+    keyword: str, website_id: Optional[int] = None, keyword_id: Optional[int] = None,
+    publish_date: Optional[str] = None,
+) -> dict:
     """Thin wrapper around _run_for_keyword_inner() - the only job here is
     guaranteeing claim_keyword()'s 'queued' state never gets stuck. Measured
     on a real run: an unhandled exception mid-pipeline (SE Ranking's API
@@ -281,10 +284,10 @@ def run_for_keyword(keyword: str, website_id: Optional[int] = None, keyword_id: 
     propagate (callers like run_scheduler.py need to see and log the
     failure), it just guarantees the claim is released first either way."""
     if keyword_id is None:
-        return _run_for_keyword_inner(keyword, website_id, keyword_id)
+        return _run_for_keyword_inner(keyword, website_id, keyword_id, publish_date)
     try:
         db_client.claim_keyword(keyword_id)
-        result = _run_for_keyword_inner(keyword, website_id, keyword_id)
+        result = _run_for_keyword_inner(keyword, website_id, keyword_id, publish_date)
     except Exception:
         db_client.release_keyword(keyword_id)
         raise
@@ -293,7 +296,10 @@ def run_for_keyword(keyword: str, website_id: Optional[int] = None, keyword_id: 
     return result
 
 
-def _run_for_keyword_inner(keyword: str, website_id: Optional[int] = None, keyword_id: Optional[int] = None) -> dict:
+def _run_for_keyword_inner(
+    keyword: str, website_id: Optional[int] = None, keyword_id: Optional[int] = None,
+    publish_date: Optional[str] = None,
+) -> dict:
     run_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{_slugify(keyword)}"
     run_dir = LOGS_DIR / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -560,6 +566,7 @@ def _run_for_keyword_inner(keyword: str, website_id: Optional[int] = None, keywo
     wp_result = _publish_to_wordpress(
         website_id, keyword_id, slug, outline, article, hero_image, run_summary["quality_gate"],
         run_summary["cost"]["total_cost_usd"], interlinking_candidates, deepseek, log_step,
+        publish_date=publish_date,
     )
     run_summary.update(wp_result)
     # release_keyword() on a non-publish outcome now happens once, in the

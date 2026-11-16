@@ -173,8 +173,11 @@ def create_post(
     wp_config: dict, title: str, html_content: str, excerpt: str,
     featured_media_id: Optional[int], status: str = "publish", slug: Optional[str] = None,
     category_id: Optional[int] = None, author_id: Optional[int] = None,
+    publish_date: Optional[str] = None,
 ) -> Optional[dict]:
-    """Without an explicit `slug`, WordPress derives one from the FULL
+    """`publish_date` is an ISO UTC timestamp; a past one backdates the post.
+
+    Without an explicit `slug`, WordPress derives one from the FULL
     title - measured on a real post: a title with a subtitle produced a
     102-character URL, which RankMath flags as too long. Passing the
     keyword's own short slug (already computed for the local .md/.html
@@ -192,6 +195,8 @@ def create_post(
             body[_category_taxonomy(wp_config)] = [category_id]
         if author_id:
             body["author"] = author_id
+        if publish_date:
+            body["date_gmt"] = publish_date
         resp = httpx.post(
             f"{wp_config['wp_base_url'].rstrip('/')}/wp-json/wp/v2/{_post_type(wp_config)}",
             headers=_auth_header(wp_config),

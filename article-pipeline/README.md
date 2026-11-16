@@ -81,7 +81,14 @@ here for pipeline-only settings (`PEXELS_API_KEY`, `WP_PUBLISH_STATUS`, etc.
 
 # Daily automation - tops every article-enabled website up to its quota:
 ./.venv/bin/python run_scheduler.py
+
+# Backfill one backdated article per day after an outage (stops if WordPress rejects a post):
+./.venv/bin/python run_backfill.py --website-id 1 --start 2026-11-09 --end 2026-11-15
 ```
+
+Backdated posts keep their publish date, but any later edit (SEO meta, backlinks) resets
+WordPress's modified date to now, and WordPress's API cannot set it back. If the theme shows
+the modified date as "Updated", filter `get_the_modified_date` to return the publish date.
 
 Each run costs real API credits — DeepSeek for ~20-25 LLM calls (research/QA
 plus one generation per outline section, plus a handful of condense calls for
