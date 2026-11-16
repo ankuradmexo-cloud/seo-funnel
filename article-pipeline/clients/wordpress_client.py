@@ -199,10 +199,14 @@ def create_post(
             timeout=_TIMEOUT,
         )
         if resp.status_code not in (200, 201):
+            # Was a silent None: the casino site failed to publish for weeks and
+            # the logs only said "failed". Status and body hold no credentials.
+            print(f"  create_post failed: HTTP {resp.status_code} {resp.text[:300]!r}")
             return None
         data = resp.json()
         return {"id": data["id"], "link": data["link"], "slug": data["slug"]}
-    except Exception:
+    except Exception as e:  # noqa: BLE001
+        print(f"  create_post failed: {type(e).__name__}: {e}")
         return None
 
 
