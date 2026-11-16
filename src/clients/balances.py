@@ -49,6 +49,7 @@ class ProviderBalance(BaseModel):
     unit: str = "credits"
     detail: Optional[str] = None  # why it failed, or a note worth surfacing
     checked: bool = True  # False when the balance endpoint itself was unreachable
+    expires_at: Optional[str] = None  # when the remaining credits lapse, if the provider says
 
 
 def _seranking_balance() -> ProviderBalance:
@@ -91,7 +92,7 @@ def _seranking_balance() -> ProviderBalance:
             note = f"{remaining:,.0f} credits left, run needs ~{need:,}"
         return ProviderBalance(
             provider="seranking", ok=remaining >= need, remaining=remaining,
-            required=need, detail=note,
+            required=need, detail=note, expires_at=str(expires) if expires else None,
         )
     except Exception as e:  # noqa: BLE001
         return ProviderBalance(

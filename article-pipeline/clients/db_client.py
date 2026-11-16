@@ -38,6 +38,18 @@ def get_config(key: str, default=None):
     return resp.data[0]["value"] if resp.data else default
 
 
+def set_config(key: str, value) -> None:
+    """Upserts into seo-funnel's system_config (see get_config). Used by
+    alerts.py to remember which problems have already been reported."""
+    if _client is None:
+        return
+    from datetime import datetime, timezone
+    _client.table("system_config").upsert(
+        {"key": key, "value": value, "updated_at": datetime.now(timezone.utc).isoformat()},
+        on_conflict="key",
+    ).execute()
+
+
 def get_website_categories(website_id: int) -> list[str]:
     """websites.category is a comma-separated free-text field that already
     drives niche discovery (e.g. "AI tools, business/SaaS software

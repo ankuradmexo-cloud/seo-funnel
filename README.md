@@ -198,6 +198,18 @@ possibly-unlucky partial sample, and `niche_discovery.py` can generate a fresh
 niche to replace a retired one. Only runs that completed successfully count as
 evidence either way — an infrastructure failure cannot retire a viable niche.
 
+## Alerts
+
+Problems are pushed to the office internal tool (`POST https://workspace.admexo.us/api/notify`, `Authorization: Bearer`, body `{title, message}`) by `src/alerts.py` (`article-pipeline/alerts.py` is a copy that differs only in its state functions - keep them in sync). Set `INTERNAL_ALERT_TOKEN` as a GitHub Actions secret (both workflows) and a Render env var; `INTERNAL_ALERT_URL` optionally overrides the endpoint. With no token alerts are skipped and runs are unaffected - sending is best-effort and can never fail a run.
+
+What raises an alert:
+
+- **Provider balance** (SE Ranking, Scrappa, DeepSeek): critical when a run can't be afforded or SE Ranking's Data API is disabled; warning below 2x what a run needs; and a warning/critical when credits expire within 7/2 days. The keyword pipeline checks against its per-run need (preflight); the article pipeline (`article-pipeline/health.py`) uses fixed floors.
+- **Article scheduler**: a site published nothing, a site has no shortlisted keywords, WordPress rejected a post, or the scheduler crashed.
+- **Keyword pipeline**: crashed.
+
+Each problem is alerted once, repeated at most daily while open, and a "Resolved" message is sent when it clears. Open problems live in `system_config.alert_state`.
+
 ## Credit preflight
 
 Every run checks all three provider balances **before calling any of them**, and

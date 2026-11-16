@@ -51,3 +51,5 @@ services:
         sync: false
       - key: SERANKING_API_KEY
         sync: false
+      - key: INTERNAL_ALERT_TOKEN
+        sync: false

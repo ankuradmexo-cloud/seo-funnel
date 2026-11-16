@@ -15,6 +15,8 @@ import argparse
 import json
 import sys
 
+import alerts
+import health
 from clients import db_client
 from config import settings
 from orchestrator import run_for_keyword
@@ -46,6 +48,11 @@ def main():
         print("Article automation is paused globally in the dashboard - exiting without running.")
         sys.exit(0)
 
+    try:
+        alerts.sync_balances(health.check_balances(), scope="article")
+    except Exception as e:  # noqa: BLE001 - monitoring must never block the day's run
+        print(f"balance check/alerting failed: {e}")
+
     websites = db_client.get_active_article_websites()
     if not websites:
         print("No websites have article automation enabled - nothing to do.")
@@ -71,6 +78,7 @@ def main():
         attempted_ids: set[int] = set()
         extra_attempts = 0
         published_this_site = 0
+        wp_failed_detail = None
 
         while remaining > 0 and extra_attempts <= MAX_EXTRA_ATTEMPTS_PER_WEBSITE:
             keywords = db_client.get_shortlisted_keywords_for_articles(
@@ -94,6 +102,8 @@ def main():
                         remaining -= 1
                     else:
                         extra_attempts += 1
+                        if summary.get("wp_publish_status") == "failed":
+                            wp_failed_detail = kw["keyword"]
                 except Exception as e:  # noqa: BLE001 - one bad keyword must not abort the whole day's run
                     print(f"  FAILED: {kw['keyword']!r} - {e}")
                     results.append({"website_id": website_id, "keyword": kw["keyword"], "error": str(e)})
@@ -105,6 +115,30 @@ def main():
         if remaining > 0 and published_this_site == 0 and attempted_ids:
             print(f"  Gave up after {len(attempted_ids)} attempt(s) - "
                   f"{MAX_EXTRA_ATTEMPTS_PER_WEBSITE} extra-attempt cap reached or no candidates left.")
+
+        # Alerts (best-effort, see alerts.py). 'Published nothing' and 'WordPress
+        # rejected the post' are separate problems with separate fixes.
+        name = website["name"]
+        site_key = f"article:site{website_id}"
+        if remaining > 0 and published_this_site == 0:
+            if attempted_ids:
+                alerts.raise_issue(
+                    f"{site_key}:no_publish", f"{name}: no article published today",
+                    f"{len(attempted_ids)} keyword(s) tried, none published (quality-gate fails, errors or WordPress rejections). "
+                    "Check the Actions run log.", "warn")
+            else:
+                alerts.raise_issue(
+                    f"{site_key}:no_keywords", f"{name}: no shortlisted keywords left",
+                    "The article pipeline has nothing to write for this site - run the keyword pipeline or add keywords.", "warn")
+        else:
+            alerts.resolve_issue(f"{site_key}:no_publish")
+            alerts.resolve_issue(f"{site_key}:no_keywords")
+        if wp_failed_detail and published_this_site == 0:
+            alerts.raise_issue(
+                f"{site_key}:wp_failed", f"{name}: WordPress rejected the post",
+                f"Publishing {wp_failed_detail!r} to WordPress failed. Check WP credentials/role and the site's health.")
+        elif published_this_site > 0:
+            alerts.resolve_issue(f"{site_key}:wp_failed")
 
     print("\n--- Scheduler run summary ---")
     print(json.dumps(
@@ -122,4 +156,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001 - report the crash, then fail the run as before
+        alerts.raise_issue("article:crash", "Article scheduler crashed", f"{type(e).__name__}: {str(e)[:500]}")
+        raise
+    else:
+        alerts.resolve_issue("article:crash")

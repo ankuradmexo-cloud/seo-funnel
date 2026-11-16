@@ -2,6 +2,7 @@ import argparse
 import sys
 from datetime import datetime, timezone
 
+from src import alerts
 from src.clients import balances
 from src.clients import supabase_client as db
 from src.pipeline.orchestrator import run_all_active_websites, run_for_website
@@ -40,6 +41,7 @@ def main():
             db.set_config("credit_preflight", pre)
         except Exception as e:  # noqa: BLE001 - never let bookkeeping block the run
             print(f"warning: could not record preflight result: {e}", file=sys.stderr)
+        alerts.sync_balances(pre["providers"], scope="keyword")
         if not pre["ok"]:
             print(f"Insufficient credits - not starting. {pre['reason']}")
             sys.exit(0)
@@ -62,4 +64,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001 - report the crash, then fail the run as before
+        alerts.raise_issue("keyword:crash", "Keyword pipeline crashed", f"{type(e).__name__}: {str(e)[:500]}")
+        raise
+    else:
+        alerts.resolve_issue("keyword:crash")

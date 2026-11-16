@@ -42,9 +42,11 @@ lives in `.github/workflows/pipeline.yml`. This repo is public specifically
 because public repos get unlimited Actions minutes - two 40-minute runs a day
 would blow through a private repo's 2,000 min/month allowance.
 
-Add the five secrets under **Settings > Secrets and variables > Actions**:
+Add these secrets under **Settings > Secrets and variables > Actions**:
 `SUPABASE_URL`, `SUPABASE_KEY`, `DEEPSEEK_API_KEY`, `SCRAPPA_API_KEY`,
-`SERANKING_API_KEY`. Do not add the tuning values - those are plain `env:`
+`SERANKING_API_KEY`, plus `INTERNAL_ALERT_TOKEN` (the bearer secret for the office
+internal tool - see Alerts in the README; without it alerts are skipped, runs are unaffected).
+Do not add the tuning values - those are plain `env:`
 entries in the workflow.
 
 Scheduled at `0 6,18 * * *` (twice daily). Each firing processes one niche per
